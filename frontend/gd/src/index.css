@@ -1,0 +1,145 @@
+:root{
+  --bg:#0f1724; --card:#111827; --muted:#9ca3af; --accent:#60a5fa;
+}
+
+body {
+  font-family: Inter, Segoe UI, Arial, sans-serif;
+  background: var(--bg);
+  color: #e6eef8;
+  margin: 0;
+}
+
+.page {
+  padding: 20px;
+}
+
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+}
+
+.card {
+  background: #0b1220;
+  padding: 20px;
+  border-radius: 8px;
+  min-width: 320px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+}
+
+.form label {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.form input {
+  width: 100%;
+  padding: 8px;
+  margin-top: 6px;
+  border-radius: 6px;
+  border: none;
+  background: #0a1320;
+  color: #fff;
+}
+
+.form button {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: none;
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.topics-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.topic-card {
+  background: #071226;
+  padding: 16px;
+  border-radius: 8px;
+  min-width: 180px;
+}
+
+.error {
+  color: #ff8a8a;
+  margin-top: 6px;
+}
+
+.sim-main {
+  display: flex;
+  gap: 12px;
+}
+
+.agents {
+  width: 180px;
+  background: #071226;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.participant {
+  padding: 8px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: #0b1420;
+}
+
+.participant.user {
+  font-weight: 700;
+}
+
+.chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.messages {
+  background: #06121a;
+  padding: 12px;
+  border-radius: 8px;
+  flex: 1;
+  overflow: auto;
+}
+
+.message {
+  margin-bottom: 10px;
+}
+
+.message .sender {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.message .text {
+  background: #0b1420;
+  padding: 8px;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.composer input {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  border: none;
+  background: #071226;
+  color: #fff;
+}
