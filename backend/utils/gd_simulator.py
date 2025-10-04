@@ -1,5 +1,20 @@
 import random
+import os
+from dotenv import load_dotenv
 import google.generativeai as genai
+
+# Load .env file
+load_dotenv()
+
+# Get API key
+api_key = os.getenv("GOOGLE_API_KEY")
+
+if not api_key:
+    raise ValueError("GOOGLE_API_KEY not found. Please set it in the .env file.")
+
+# Configure Gemini
+genai.configure(api_key=api_key)
+
 
 PERSONAS = [
     "logical and fact-driven",
