@@ -1,5 +1,14 @@
-Flask
-flask-cors
-gtts
+fastapi
+uvicorn
+sentence-transformers
+torch
+transformers
+tqdm
+scikit-learn
+scipy
+numpy
 google-generativeai
+gtts
 python-dotenv
+flask
+flask-cors

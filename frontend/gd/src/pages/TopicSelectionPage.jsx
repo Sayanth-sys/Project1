@@ -7,24 +7,47 @@ function TopicSelectionPage({ onStartDiscussion }) {
   const [timePerAgent, setTimePerAgent] = useState(40);
   const navigate = useNavigate();
 
-  function handleStart() {
+  async function handleStart() {
     if (topic.trim()) {
-      onStartDiscussion({ topic, duration, timePerAgent });
-      navigate("/discussion");
+      try {
+        // Send entered topic to FastAPI backend
+        const res = await fetch("http://127.0.0.1:8000/start_simulation", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            topic: topic,
+            num_agents: 4,  // configurable later
+            rounds: 2       // configurable later
+          }),
+        });
+
+        const data = await res.json();
+        console.log("✅ Simulation started:", data);
+
+        // Pass topic and other settings to parent and move to discussion page
+        onStartDiscussion({ topic, duration, timePerAgent, simulationId: data.simulation_id });
+        navigate("/discussion");
+
+      } catch (err) {
+        console.error("❌ Error starting discussion:", err);
+        alert("Failed to start discussion. Please check backend connection.");
+      }
+    } else {
+      alert("Please enter a discussion topic first.");
     }
   }
 
   return (
     <div className="center-screen">
       <div className="box-container">
-        <h2 className="page-title" style={{marginBottom: '8px'}}>Start a New Discussion</h2>
-        <div className="subtitle">
-        </div>
+        <h2 className="page-title" style={{ marginBottom: '8px' }}>Start a New Discussion</h2>
         <div className="card">
           <label className="label" htmlFor="discussion-topic">Discussion Topic</label>
           <input
             className="input"
-            id="discussion-topic "
+            id="discussion-topic"
             placeholder="Enter your discussion topic here..."
             value={topic}
             onChange={e => setTopic(e.target.value)}
@@ -58,6 +81,7 @@ function TopicSelectionPage({ onStartDiscussion }) {
               </select>
             </div>
           </div>
+
           <button className="primary-btn" onClick={handleStart}>
             Start Discussion
           </button>
@@ -66,4 +90,5 @@ function TopicSelectionPage({ onStartDiscussion }) {
     </div>
   );
 }
+
 export default TopicSelectionPage;
