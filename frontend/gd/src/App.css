@@ -47,9 +47,11 @@ html, body, #root, .app-bg, .main-content {
   padding: 0 36px;
   position: fixed;
   top: 0;
-  width: 100vw;
+  width: 100%;     /* ✅ use 100% instead of 100vw */
   z-index: 997;
+  box-sizing: border-box; /* ensures padding stays inside width */
 }
+
 .navbar-logo {
   font-size: 1.28rem;
   font-weight: 600;
@@ -60,7 +62,13 @@ html, body, #root, .app-bg, .main-content {
   color: #132257;
   font-size: 1rem;
   font-weight: 500;
+  white-space: nowrap;     /* Prevents text from breaking into multiple lines */
+  overflow: visible;       /* Ensures text isn't hidden */
+  text-overflow: unset;    /* Prevents clipping with ellipsis */
+  padding-right: 1rem;     /* Adds breathing room from edge */
+  max-width: 100%;         /* Makes sure text can expand within navbar */
 }
+
 
 /* Discussion and Participants as before (reuse previous .discussion-container etc) */
 .discussion-container {

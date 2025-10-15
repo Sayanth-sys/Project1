@@ -9,11 +9,17 @@ from sentence_transformers import SentenceTransformer
 import google.generativeai as genai
 from typing import List, Dict
 import json
+from gtts import gTTS
+import io
+import base64
+import os
+from dotenv import load_dotenv
 
 # -------------------------
 # 🔐 Gemini Setup
 # -------------------------
-API_KEY = "AIzaSyCc2o4Yjl9hqFWwlE4RdZMyHmXZ-ICmpig"
+load_dotenv()
+API_KEY = os.getenv("API_KEY")  # Set in backend/.env
 genai.configure(api_key=API_KEY)
 chat_model = genai.GenerativeModel("models/gemini-2.5-flash-preview-09-2025")
 
@@ -38,7 +44,7 @@ PERSONAS = [
 # 🧩 Helper Functions
 # -------------------------
 def safe_generate(prompt, timeout=60):
-    """Call Gemini safely with timeout and detailed debugging."""
+    """Call Gemini safely with timeout and debugging."""
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future = executor.submit(chat_model.generate_content, prompt)
         try:
@@ -52,6 +58,18 @@ def safe_generate(prompt, timeout=60):
         except Exception as e:
             print(f"[ERROR] During Gemini generation: {e}")
             return f"[Error: {e}]"
+
+def text_to_audio_base64(text):
+    """Convert text to audio and return as base64."""
+    try:
+        tts = gTTS(text)
+        audio_bytes = io.BytesIO()
+        tts.write_to_fp(audio_bytes)
+        audio_bytes.seek(0)
+        return base64.b64encode(audio_bytes.read()).decode("utf-8")
+    except Exception as e:
+        print(f"[ERROR] TTS failed: {e}")
+        return None
 
 # -------------------------
 # 🗣️ Agent Class
@@ -95,7 +113,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173"],  # frontend origin
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -133,18 +151,8 @@ def start_simulation(req: SimulationRequest):
     for a in agents:
         print(f"  {a.name}: {a.persona}")
 
-    # Return agents in correct format for frontend
-    agent_list = []
-    for agent in agents:
-        agent_list.append({
-            "name": agent.name,
-            "persona": agent.persona
-        })
-    
-    return {
-        "simulation_id": sim_id, 
-        "agents": agent_list
-    }
+    agent_list = [{"name": agent.name, "persona": agent.persona} for agent in agents]
+    return {"simulation_id": sim_id, "agents": agent_list}
 
 @app.post("/next_round/{sim_id}")
 def next_round(sim_id: str):
@@ -164,21 +172,23 @@ def next_round(sim_id: str):
     
     def generate():
         for i, agent in enumerate(speaking_order):
-            # Send "thinking" status
+            # Thinking status
             yield f"data: {json.dumps({'type': 'thinking', 'agent': agent.name})}\n\n"
             
             prompt = agent.prepare_prompt(topic, utterances, is_first=(sim["current_round"] == 0 and i == 0))
             text = agent.generate_response(prompt)
-            
-            data = {"agent": agent.name, "text": text}
+
+            # Convert to audio
+            audio_base64 = text_to_audio_base64(text)
+
+            data = {"agent": agent.name, "text": text, "audio": audio_base64}
             utterances.append(data)
-            
-            # Send actual response
-            yield f"data: {json.dumps({'type': 'response', 'agent': agent.name, 'text': text})}\n\n"
+
+            # Send response with audio
+            yield f"data: {json.dumps({'type': 'response', 'agent': agent.name, 'text': text, 'audio': audio_base64})}\n\n"
             print(f"[ROUND {sim['current_round']+1}] {agent.name}: {text}")
         
         sim["current_round"] += 1
-        # Send completion
         yield f"data: {json.dumps({'type': 'complete', 'round': sim['current_round']})}\n\n"
     
     return StreamingResponse(generate(), media_type="text/event-stream")

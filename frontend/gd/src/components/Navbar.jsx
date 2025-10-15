@@ -5,7 +5,7 @@ function Navbar({ user }) {
   return (
     <nav className="navbar">
       <span className="navbar-logo">GD Simulator</span>
-      {user && <span className="navbar-user">Welcome, {user}</span>}
+      {user && <span className="navbar-user">Welcome {user}</span>}
     </nav>
   );
 }

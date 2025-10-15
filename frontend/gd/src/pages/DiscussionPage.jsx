@@ -85,56 +85,82 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
             try {
               const data = JSON.parse(jsonStr);
               console.log("📨 Received:", data);
-              
               if (data.type === 'thinking') {
-                console.log(`💭 ${data.agent} is thinking...`);
-                // Show agent is thinking
-                setParticipants(prev =>
-                  prev.map(p =>
-                    p.name === data.agent
-                      ? { ...p, status: 'thinking' }
-                      : { ...p, status: 'waiting' }
-                  )
-                );
-                
-                // Add thinking indicator to messages
-                setMessages(prev => [...prev, {
-                  id: `thinking-${Date.now()}`,
-                  agent: data.agent,
-                  role: participants.find(p => p.name === data.agent)?.role || '',
-                  text: '',
-                  isThinking: true
-                }]);
-                
-              } else if (data.type === 'response') {
-                console.log(`✅ ${data.agent} responded:`, data.text);
-                // Remove thinking indicator and add actual response
-                setMessages(prev => {
-                  const filtered = prev.filter(m => !(m.agent === data.agent && m.isThinking));
-                  return [...filtered, {
-                    id: `msg-${Date.now()}`,
-                    agent: data.agent,
-                    role: participants.find(p => p.name === data.agent)?.role || '',
-                    text: data.text,
-                    isThinking: false
-                  }];
-                });
-                
-                setParticipants(prev =>
-                  prev.map(p =>
-                    p.name === data.agent
-                      ? { ...p, status: 'spoke' }
-                      : p
-                  )
-                );
-                
-              } else if (data.type === 'complete') {
-                console.log(`🎉 Round ${data.round} complete`);
-                setRound(data.round);
-                setParticipants(prev =>
-                  prev.map(p => ({ ...p, status: 'waiting' }))
-                );
-              }
+              console.log(`💭 ${data.agent} is thinking...`);
+              // Show agent is thinking
+              setParticipants(prev =>
+                prev.map(p =>
+                  p.name === data.agent
+                    ? { ...p, status: 'thinking' }
+                    : { ...p, status: 'waiting' }
+                )
+              );
+
+              // Add thinking indicator to messages
+              setMessages(prev => [...prev, {
+                id: `thinking-${Date.now()}`,
+                agent: data.agent,
+                role: participants.find(p => p.name === data.agent)?.role || '',
+                text: '',
+                isThinking: true
+              }]);
+
+            } if (data.type === 'response') {
+  console.log(`✅ ${data.agent} responded:`, data.text);
+
+  // Update status to "speaking"
+  setParticipants(prev =>
+    prev.map(p =>
+      p.name === data.agent
+        ? { ...p, status: 'speaking' }
+        : p
+    )
+  );
+
+  // Remove thinking indicator (if any)
+  setMessages(prev => {
+    const filtered = prev.filter(m => !(m.agent === data.agent && m.isThinking));
+    return [...filtered, {
+      id: `msg-${Date.now()}`,
+      agent: data.agent,
+      role: participants.find(p => p.name === data.agent)?.role || '',
+      text: data.text,
+      isThinking: false
+    }];
+  });
+
+  // 🎧 Play audio and wait for it to finish
+  if (data.audio) {
+    await new Promise((resolve) => {
+      const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
+      audio.onended = resolve;
+      audio.onerror = () => {
+        console.warn("Audio play error");
+        resolve();
+      };
+      audio.play();
+    });
+  }
+
+  // After speaking ends
+  setParticipants(prev =>
+    prev.map(p =>
+      p.name === data.agent
+        ? { ...p, status: 'spoke' }
+        : p
+    )
+  );
+}
+
+ else if (data.type === 'complete') {
+              console.log(`🎉 Round ${data.round} complete`);
+              setRound(data.round);
+              setParticipants(prev =>
+                prev.map(p => ({ ...p, status: 'waiting' }))
+              );
+            }
+
+              
             } catch (e) {
               console.error("❌ Error parsing SSE data:", e, "Raw:", jsonStr);
             }
