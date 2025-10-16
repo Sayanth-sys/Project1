@@ -24,7 +24,7 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
   const startSimulation = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/start_simulation", {
+      const res = await fetch("http://127.0.0.1:8001/start_simulation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic: topic, num_agents: 4, rounds: 2 })
@@ -57,7 +57,7 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
     setLoading(true);
     
     try {
-      const response = await fetch(`http://127.0.0.1:8000/next_round/${simId}`, {
+      const response = await fetch(`http://127.0.0.1:8001/next_round/${simId}`, {
         method: "POST"
       });
 
