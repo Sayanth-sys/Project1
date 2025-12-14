@@ -59,14 +59,25 @@ def safe_generate(prompt, timeout=60):
             print(f"[ERROR] During Gemini generation: {e}")
             return f"[Error: {e}]"
 
-def text_to_audio_base64(text):
-    """Convert text to audio and return as base64."""
+def text_to_audio_base64(text, agent_name):
+    """Convert text to audio with agent-specific accent."""
     try:
-        tts = gTTS(text)
+        accent_map = {
+            "Agent 1": "co.in",   # Indian English
+            "Agent 2": "com",     # US English
+            "Agent 3": "co.uk",   # British English
+            "Agent 4": "com.au"   # Australian English
+        }
+
+        tld = accent_map.get(agent_name, "com")
+        tts = gTTS(text, lang="en", tld=tld, slow=False)
+
         audio_bytes = io.BytesIO()
         tts.write_to_fp(audio_bytes)
         audio_bytes.seek(0)
+
         return base64.b64encode(audio_bytes.read()).decode("utf-8")
+
     except Exception as e:
         print(f"[ERROR] TTS failed: {e}")
         return None
@@ -80,7 +91,11 @@ class Agent:
         self.persona = persona
 
     def prepare_prompt(self, topic, utterances, is_first=False):
-        context = "\n".join([u["text"] for u in utterances[-2:]])
+        full_discussion = "\n".join(
+        f"- {u['agent']}: {u['text']}" for u in utterances
+    )
+
+        last_remark = utterances[-1]["text"] if utterances else ""
         if is_first and not utterances:
             return f"""
 You are {self.name}, a participant in a group discussion.
@@ -88,16 +103,49 @@ Your style: {self.persona}.
 Topic: {topic}
 
 You are the first to speak. Start naturally with your viewpoint (under 80 words).
+
+
+Speak like a normal college student in a group discussion.
+
+Rules:
+- Keep it simple and conversational
+- Use short sentences
+- Avoid formal or academic language
+- It's okay to sound slightly casual
+- Say just one clear point
+- Do NOT explain too much
+- 25–50 words only
+
+You may naturally use phrases like:
+"I think", "Honestly", "I feel", "To be fair", "I agree, but"
+
+
 """
         return f"""
 You are {self.name}, a participant in a group discussion.
 Your style: {self.persona}.
 Topic: {topic}
 
-Recent remarks:
-{context or 'No prior remarks yet.'}
+Discussion so far (for your awareness only, do NOT summarize or repeat it):
+{full_discussion or "No prior remarks."}
+
+Most recent comment (this is what you reply to):
+"{last_remark}"
 
 Respond naturally in under 80 words, staying consistent with your persona.
+Speak like a normal college student in a group discussion.
+
+Rules:
+- Keep it simple and conversational
+- Use short sentences
+- Avoid formal or academic language
+- It's okay to sound slightly casual
+- Say just one clear point
+- Do NOT explain too much
+- 25–50 words only
+
+You may naturally use phrases like:
+"I think", "Honestly", "I feel", "To be fair", "I agree, but"
 """
 
     def generate_response(self, prompt):
@@ -179,7 +227,8 @@ def next_round(sim_id: str):
             text = agent.generate_response(prompt)
 
             # Convert to audio
-            audio_base64 = text_to_audio_base64(text)
+            audio_base64 = text_to_audio_base64(text, agent.name)
+
 
             data = {"agent": agent.name, "text": text, "audio": audio_base64}
             utterances.append(data)
