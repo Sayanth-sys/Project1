@@ -11,7 +11,7 @@ function TopicSelectionPage({ onStartDiscussion }) {
     if (topic.trim()) {
       try {
         // Send entered topic to FastAPI backend
-        const res = await fetch("http://127.0.0.1:8000/start_simulation", {
+        const res = await fetch("http://127.0.0.1:8001/start_simulation", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
