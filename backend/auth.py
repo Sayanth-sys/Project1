@@ -33,7 +33,7 @@ import crud
 from database import SessionLocal
 
 # Secret key - CHANGE THIS IN PRODUCTION!
-SECRET_KEY = "your-secret-key-change-this-in-production"
+SECRET_KEY = "AIzaSyBU6Y5XtN_8ZD6GuzlgeYIAbTamlcMTf78"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

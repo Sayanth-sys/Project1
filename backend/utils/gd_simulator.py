@@ -1,5 +1,5 @@
-import time
 import random
+import time
 import concurrent.futures
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -104,7 +104,6 @@ Topic: {topic}
 
 You are the first to speak. Start naturally with your viewpoint (under 80 words).
 
-
 Speak like a normal college student in a group discussion.
 
 Rules:
@@ -118,7 +117,6 @@ Rules:
 
 You may naturally use phrases like:
 "I think", "Honestly", "I feel", "To be fair", "I agree, but"
-
 
 """
         return f"""
@@ -217,18 +215,17 @@ def next_round(sim_id: str):
 
     speaking_order = random.sample(agents, len(agents))
     print(f"\n[INFO] Round {sim['current_round'] + 1} speaking order: {[a.name for a in speaking_order]}")
-    
+
     def generate():
         for i, agent in enumerate(speaking_order):
             # Thinking status
             yield f"data: {json.dumps({'type': 'thinking', 'agent': agent.name})}\n\n"
-            
+
             prompt = agent.prepare_prompt(topic, utterances, is_first=(sim["current_round"] == 0 and i == 0))
             text = agent.generate_response(prompt)
 
             # Convert to audio
             audio_base64 = text_to_audio_base64(text, agent.name)
-
 
             data = {"agent": agent.name, "text": text, "audio": audio_base64}
             utterances.append(data)
@@ -236,8 +233,8 @@ def next_round(sim_id: str):
             # Send response with audio
             yield f"data: {json.dumps({'type': 'response', 'agent': agent.name, 'text': text, 'audio': audio_base64})}\n\n"
             print(f"[ROUND {sim['current_round']+1}] {agent.name}: {text}")
-        
+
         sim["current_round"] += 1
         yield f"data: {json.dumps({'type': 'complete', 'round': sim['current_round']})}\n\n"
-    
+
     return StreamingResponse(generate(), media_type="text/event-stream")
