@@ -15,20 +15,69 @@ import base64
 import os
 import tempfile
 from dotenv import load_dotenv
-import speech_recognition as sr
-from pydub import AudioSegment
+import wave
+from vosk import Model, KaldiRecognizer
+import subprocess
+import shutil
 
 # -------------------------
 # 🔐 Gemini Setup
 # -------------------------
 load_dotenv()
 API_KEY = os.getenv("API_KEY")
+
+# ✅ IMPROVED: Better FFmpeg detection
+def setup_ffmpeg():
+    """Detect and setup FFmpeg path"""
+    # Check if ffmpeg is already in PATH
+    if shutil.which("ffmpeg"):
+        print("[INFO] ✅ FFmpeg found in system PATH")
+        return True
+    
+    # Common FFmpeg installation paths
+    common_paths = [
+        r"C:\ffmpeg\bin",
+        r"C:\Program Files\ffmpeg\bin",
+        r"/usr/local/bin",
+        r"/usr/bin"
+    ]
+    
+    for path in common_paths:
+        if os.path.exists(os.path.join(path, "ffmpeg.exe" if os.name == 'nt' else "ffmpeg")):
+            os.environ["PATH"] += os.pathsep + path
+            print(f"[INFO] ✅ FFmpeg found at: {path}")
+            return True
+    
+    print("[ERROR] ❌ FFmpeg not found!")
+    print("[INFO] 💡 Install FFmpeg:")
+    print("       Windows: Download from https://ffmpeg.org/download.html")
+    print("       Linux: sudo apt-get install ffmpeg")
+    print("       Mac: brew install ffmpeg")
+    return False
+
+ffmpeg_available = setup_ffmpeg()
+
 genai.configure(api_key=API_KEY)
 chat_model = genai.GenerativeModel("models/gemini-2.5-flash-preview-09-2025")
 
-# Set FFmpeg path if you have it in a custom location
-# Uncomment and modify if you extracted FFmpeg to a custom folder:
-# os.environ["PATH"] += os.pathsep + r"C:\Users\HP\ffmpeg\bin"
+# -------------------------
+# 🎤 Vosk Model Setup (Offline Speech Recognition)
+# -------------------------
+VOSK_MODEL_PATH = "vosk-model-small-en-us-0.15"
+
+print("[INFO] Loading Vosk speech recognition model...")
+if os.path.exists(VOSK_MODEL_PATH):
+    try:
+        vosk_model = Model(VOSK_MODEL_PATH)
+        print(f"[INFO] ✅ Vosk model loaded from: {VOSK_MODEL_PATH}")
+    except Exception as e:
+        vosk_model = None
+        print(f"[ERROR] ❌ Failed to load Vosk model: {e}")
+else:
+    vosk_model = None
+    print(f"[WARNING] ⚠️ Vosk model not found at: {VOSK_MODEL_PATH}")
+    print("[WARNING] 💡 Download from: https://alphacephei.com/vosk/models")
+    print("[WARNING] 💡 Extract to project root and rename to 'vosk-model-small-en-us-0.15'")
 
 # -------------------------
 # 🧠 Embedding Model
@@ -50,6 +99,7 @@ PERSONAS = [
 # -------------------------
 # 🧩 Helper Functions
 # -------------------------
+
 def safe_generate(prompt, timeout=60):
     """Call Gemini safely with timeout and debugging."""
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -89,85 +139,179 @@ def text_to_audio_base64(text, agent_name):
         print(f"[ERROR] TTS failed: {e}")
         return None
 
-def transcribe_audio(audio_file):
-    """Convert audio file to text - NO FFmpeg required (with fallback)."""
-    temp_path = None
+
+def transcribe_audio_vosk(audio_file):
+    """
+    ✅ IMPROVED: Enhanced transcription with better error handling and debugging
+    """
+    webm_path = None
     wav_path = None
-    
+
     try:
-        recognizer = sr.Recognizer()
+        # Check prerequisites
+        if vosk_model is None:
+            print("[ERROR] ❌ Vosk model not loaded")
+            return None
         
-        # Read the audio file
+        if not ffmpeg_available:
+            print("[ERROR] ❌ FFmpeg not available")
+            return None
+
+        # Read uploaded audio
         audio_data = audio_file.read()
         audio_file.seek(0)
+        print(f"[DEBUG] 🎤 Received audio: {len(audio_data)} bytes")
         
-        print(f"[DEBUG] 🎤 Received audio file: {len(audio_data)} bytes")
+        if len(audio_data) < 1000:
+            print("[ERROR] ❌ Audio file too small (likely empty recording)")
+            return None
+
+        # Create temp directory if it doesn't exist
+        temp_dir = tempfile.gettempdir()
+        print(f"[DEBUG] 📁 Using temp directory: {temp_dir}")
+
+        # Save WebM temporarily with unique filename
+        timestamp = int(time.time() * 1000)
+        webm_path = os.path.join(temp_dir, f"recording_{timestamp}.webm")
+        wav_path = os.path.join(temp_dir, f"recording_{timestamp}.wav")
         
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as temp_audio:
-            temp_audio.write(audio_data)
-            temp_path = temp_audio.name
+        with open(webm_path, 'wb') as f:
+            f.write(audio_data)
+        print(f"[DEBUG] 💾 Saved WebM to: {webm_path}")
+
+        # 🔄 Convert WebM → WAV using FFmpeg with verbose output
+        print("[DEBUG] 🔄 Converting WebM → WAV using FFmpeg...")
         
-        try:
-            # Try direct recognition (works if browser sends compatible format)
-            print("[DEBUG] 🔄 Attempting direct recognition...")
-            with sr.AudioFile(temp_path) as source:
-                audio_content = recognizer.record(source)
-                text = recognizer.recognize_google(audio_content)
-                print(f"[DEBUG] ✅ Transcribed: '{text}'")
-                if temp_path and os.path.exists(temp_path):
-                    os.remove(temp_path)
-                return text
-        except Exception as direct_error:
-            print(f"[DEBUG] ⚠️ Direct recognition failed: {direct_error}")
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",  # Overwrite output file
+            "-i", webm_path,  # Input file
+            "-ac", "1",  # Mono audio
+            "-ar", "16000",  # 16kHz sample rate
+            "-sample_fmt", "s16",  # 16-bit PCM
+            "-f", "wav",  # Force WAV format
+            wav_path
+        ]
+        
+        print(f"[DEBUG] Running: {' '.join(ffmpeg_cmd)}")
+        
+        result = subprocess.run(
+            ffmpeg_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            print(f"[ERROR] ❌ FFmpeg failed with code {result.returncode}")
+            print(f"[ERROR] FFmpeg stderr: {result.stderr}")
+            return None
+        
+        print(f"[DEBUG] ✅ FFmpeg conversion successful")
+
+        # Verify WAV file exists and has content
+        if not os.path.exists(wav_path):
+            print("[ERROR] ❌ WAV file was not created")
+            return None
+        
+        wav_size = os.path.getsize(wav_path)
+        print(f"[DEBUG] 📊 WAV file size: {wav_size} bytes")
+        
+        if wav_size < 1000:
+            print("[ERROR] ❌ WAV file too small (conversion likely failed)")
+            return None
+
+        # Open WAV file
+        wf = wave.open(wav_path, "rb")
+        
+        print(f"[DEBUG] 📊 WAV properties:")
+        print(f"  - Channels: {wf.getnchannels()}")
+        print(f"  - Sample width: {wf.getsampwidth()}")
+        print(f"  - Frame rate: {wf.getframerate()}")
+        print(f"  - Frames: {wf.getnframes()}")
+        print(f"  - Duration: {wf.getnframes() / wf.getframerate():.2f}s")
+
+        # Validate WAV format
+        if wf.getnchannels() != 1 or wf.getsampwidth() != 2:
+            print("[ERROR] ❌ Invalid WAV format for Vosk")
+            print(f"  Expected: 1 channel, 2 bytes sample width")
+            print(f"  Got: {wf.getnchannels()} channels, {wf.getsampwidth()} bytes")
+            wf.close()
+            return None
+
+        # Create recognizer
+        print("[DEBUG] 🎯 Creating Vosk recognizer...")
+        rec = KaldiRecognizer(vosk_model, wf.getframerate())
+        rec.SetWords(True)
+
+        result_text = ""
+        frames_processed = 0
+
+        print("[DEBUG] 🔍 Starting transcription...")
+        while True:
+            data = wf.readframes(4000)
+            if len(data) == 0:
+                break
             
-            # Fallback: Try with pydub (requires FFmpeg)
-            try:
-                print("[DEBUG] 🔄 Trying format conversion with pydub...")
-                audio = AudioSegment.from_file(temp_path)
-                wav_path = temp_path.replace('.webm', '.wav')
-                audio.export(wav_path, format="wav")
-                
-                with sr.AudioFile(wav_path) as source:
-                    audio_content = recognizer.record(source)
-                    text = recognizer.recognize_google(audio_content)
-                    print(f"[DEBUG] ✅ Transcribed (converted): '{text}'")
-                    
-                if temp_path and os.path.exists(temp_path):
-                    os.remove(temp_path)
-                if wav_path and os.path.exists(wav_path):
-                    os.remove(wav_path)
-                return text
-            except Exception as convert_error:
-                print(f"[ERROR] ❌ Conversion failed: {convert_error}")
-                print("[ERROR] 💡 FFmpeg not found! Please install FFmpeg or use text input")
-                print("[ERROR] 💡 Download FFmpeg from: https://www.gyan.dev/ffmpeg/builds/")
-                if temp_path and os.path.exists(temp_path):
-                    os.remove(temp_path)
-                if wav_path and os.path.exists(wav_path):
-                    os.remove(wav_path)
-                return None
-            
-    except sr.UnknownValueError:
-        print("[ERROR] ❌ Could not understand audio - speech unclear")
+            frames_processed += 1
+            if rec.AcceptWaveform(data):
+                part_result = json.loads(rec.Result())
+                part_text = part_result.get("text", "")
+                if part_text:
+                    print(f"[DEBUG] 📝 Partial result: '{part_text}'")
+                    result_text += part_text + " "
+
+        # Get final result
+        final_result = json.loads(rec.FinalResult())
+        final_text = final_result.get("text", "")
+        if final_text:
+            print(f"[DEBUG] 📝 Final result: '{final_text}'")
+            result_text += final_text
+        
+        wf.close()
+        
+        result_text = result_text.strip()
+        print(f"[DEBUG] 📊 Processed {frames_processed} frame chunks")
+
+        if result_text:
+            print(f"[SUCCESS] ✅ Transcribed: '{result_text}'")
+            return result_text
+        else:
+            print("[ERROR] ❌ No speech detected in audio")
+            print("[INFO] 💡 Possible causes:")
+            print("  - Audio too quiet")
+            print("  - Background noise too loud")
+            print("  - Recording too short")
+            print("  - Microphone not working properly")
+            return None
+
+    except subprocess.TimeoutExpired:
+        print("[ERROR] ❌ FFmpeg conversion timeout (>30s)")
         return None
-    except sr.RequestError as e:
-        print(f"[ERROR] ❌ Speech recognition service error: {e}")
+    
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] ❌ FFmpeg failed: {e}")
         return None
+
     except Exception as e:
-        print(f"[ERROR] ❌ Transcription failed: {e}")
+        print(f"[ERROR] ❌ Vosk transcription failed: {e}")
         import traceback
-        traceback.print_exc()
+        print(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
         return None
+
     finally:
-        # Cleanup temporary files
-        try:
-            if temp_path and os.path.exists(temp_path):
-                os.remove(temp_path)
-            if wav_path and os.path.exists(wav_path):
-                os.remove(wav_path)
-        except:
-            pass
+        # Cleanup temp files
+        for path in [webm_path, wav_path]:
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                    print(f"[DEBUG] 🗑️ Cleaned up: {path}")
+                except Exception as e:
+                    print(f"[WARNING] ⚠️ Could not delete {path}: {e}")
+
+
+# Alias for compatibility
+transcribe_audio = transcribe_audio_vosk
 
 # -------------------------
 # 🗣️ Agent Class
@@ -208,7 +352,6 @@ You may naturally use phrases like:
 "I think", "Honestly", "I feel", "To be fair", "I agree, but"
 """
         
-        # Special handling if human just spoke
         human_context = ""
         if human_just_spoke and last_speaker == "You":
             human_context = f"\n\nIMPORTANT: A human participant (labeled 'You') just shared their view: \"{last_remark}\"\nRespond directly to their point, acknowledging what they said."
@@ -325,15 +468,22 @@ async def submit_human_input(sim_id: str, audio: Optional[UploadFile] = File(Non
     # Get human input
     human_text = None
     if audio:
-        print("🎤 Processing voice input...")
+        print("🎤 Processing voice input with Vosk...")
         human_text = transcribe_audio(audio.file)
     elif text:
         print(f"⌨️  Processing text input: '{text}'")
         human_text = text
     
     if not human_text:
-        print("❌ ERROR: Could not understand input")
-        return {"error": "Could not understand input. Please try using text input instead."}
+        error_msg = "Could not transcribe audio. "
+        if not vosk_model:
+            error_msg += "Vosk model not loaded. "
+        if not ffmpeg_available:
+            error_msg += "FFmpeg not available. "
+        error_msg += "Please use text input instead."
+        
+        print(f"❌ ERROR: {error_msg}")
+        return {"error": error_msg}
     
     print(f"\n💬 HUMAN SAID: \"{human_text}\"")
     print(f"{'='*60}\n")
@@ -342,7 +492,7 @@ async def submit_human_input(sim_id: str, audio: Optional[UploadFile] = File(Non
     sim["utterances"].append({
         "agent": "You",
         "text": human_text,
-        "audio": None  # No audio playback for human
+        "audio": None
     })
     
     sim["awaiting_human"] = False
@@ -363,7 +513,6 @@ def next_round(sim_id: str):
     topic = sim["topic"]
     human_participant = sim["human_participant"]
 
-    # Create speaking order with human participant
     speaking_order = []
     if human_participant:
         all_speakers = agents.copy()
@@ -387,11 +536,9 @@ def next_round(sim_id: str):
                 print(f"   YOUR TURN TO SPEAK!")
                 print(f"   {'='*50}\n")
                 
-                # Signal frontend that it's human's turn
                 yield f"data: {json.dumps({'type': 'human_turn'})}\n\n"
                 sim["awaiting_human"] = True
                 
-                # Wait for human input
                 max_wait = 120
                 waited = 0
                 while sim["awaiting_human"] and waited < max_wait:
@@ -403,14 +550,12 @@ def next_round(sim_id: str):
                     yield f"data: {json.dumps({'type': 'error', 'message': 'Timeout waiting for human input'})}\n\n"
                     continue
                 
-                # Send human's input to frontend
                 human_utterance = sim["utterances"][-1]
                 print(f"✅ Human response submitted: \"{human_utterance['text']}\"")
                 yield f"data: {json.dumps({'type': 'human_response', 'text': human_utterance['text']})}\n\n"
                 human_just_spoke = True
                 
             else:
-                # AI Agent's turn
                 agent = speaker
                 print(f"\n💭 {agent.name} is thinking...")
                 yield f"data: {json.dumps({'type': 'thinking', 'agent': agent.name})}\n\n"
@@ -449,5 +594,17 @@ def get_status(sim_id: str):
         "current_round": sim["current_round"],
         "total_rounds": sim["total_rounds"],
         "awaiting_human": sim["awaiting_human"],
-        "utterances_count": len(sim["utterances"])
+        "utterances_count": len(sim["utterances"]),
+        "vosk_loaded": vosk_model is not None,
+        "ffmpeg_available": ffmpeg_available
+    }
+
+@app.get("/health")
+def health_check():
+    """Check if all required components are available."""
+    return {
+        "status": "ok",
+        "vosk_model_loaded": vosk_model is not None,
+        "ffmpeg_available": ffmpeg_available,
+        "vosk_model_path": VOSK_MODEL_PATH if os.path.exists(VOSK_MODEL_PATH) else "Not found"
     }

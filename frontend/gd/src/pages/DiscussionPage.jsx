@@ -20,15 +20,61 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [textInput, setTextInput] = useState('');
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [systemStatus, setSystemStatus] = useState(null);
   
   const messagesEndRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const textInputRef = useRef(null);
+  const recordingTimerRef = useRef(null);
+  const audioStreamRef = useRef(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Check system health on mount
+  useEffect(() => {
+    checkSystemHealth();
+  }, []);
+
+  // Recording timer
+  useEffect(() => {
+    if (isRecording) {
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      setRecordingDuration(0);
+    }
+    return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+    };
+  }, [isRecording]);
+
+  const checkSystemHealth = async () => {
+    try {
+      const res = await fetch("http://127.0.0.1:8001/health");
+      const data = await res.json();
+      setSystemStatus(data);
+      console.log("🏥 System health:", data);
+      
+      if (!data.vosk_model_loaded) {
+        console.warn("⚠️ Vosk model not loaded - voice input will not work");
+      }
+      if (!data.ffmpeg_available) {
+        console.warn("⚠️ FFmpeg not available - voice input will not work");
+      }
+    } catch (err) {
+      console.error("❌ Could not check system health:", err);
+    }
+  };
 
   const startSimulation = async () => {
     setLoading(true);
@@ -69,38 +115,95 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
   };
 
   const startRecording = async () => {
+    // Check system status first
+    if (systemStatus && (!systemStatus.vosk_model_loaded || !systemStatus.ffmpeg_available)) {
+      alert("Voice recording is not available. Missing:\n" + 
+            (!systemStatus.vosk_model_loaded ? "- Vosk speech model\n" : "") +
+            (!systemStatus.ffmpeg_available ? "- FFmpeg\n" : "") +
+            "\nPlease use text input instead.");
+      return;
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      console.log("🎤 Requesting microphone access...");
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
+      
+      audioStreamRef.current = stream;
+      console.log("✅ Microphone access granted");
+
+      // Use webm format with opus codec for better compatibility
+      const options = { mimeType: 'audio/webm;codecs=opus' };
+      
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        console.warn("⚠️ Opus not supported, trying default webm");
+        options.mimeType = 'audio/webm';
+      }
+
+      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
+          console.log(`📦 Audio chunk received: ${event.data.size} bytes`);
           audioChunksRef.current.push(event.data);
         }
       };
 
       mediaRecorder.onstop = async () => {
+        console.log(`🛑 Recording stopped. Total chunks: ${audioChunksRef.current.length}`);
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        stream.getTracks().forEach(track => track.stop());
-        await submitVoice(audioBlob);
+        console.log(`📊 Audio blob size: ${audioBlob.size} bytes`);
+        
+        // Stop all tracks
+        stream.getTracks().forEach(track => {
+          track.stop();
+          console.log("🔇 Stopped audio track");
+        });
+        
+        if (audioBlob.size > 1000) {
+          await submitVoice(audioBlob);
+        } else {
+          console.error("❌ Recording too short or empty");
+          alert("Recording failed - audio file is too small. Please try again or use text input.");
+          setIsProcessing(false);
+        }
       };
 
-      mediaRecorder.start();
+      mediaRecorder.onerror = (event) => {
+        console.error("❌ MediaRecorder error:", event.error);
+        alert("Recording error: " + event.error);
+      };
+
+      // Start recording with timeslice for continuous data
+      mediaRecorder.start(1000); // Collect data every second
       setIsRecording(true);
-      console.log("🎤 Recording started...");
+      console.log("🔴 Recording started with format:", options.mimeType);
     } catch (error) {
-      console.error('Error accessing microphone:', error);
-      alert('Could not access microphone. Please use text input instead.');
+      console.error('❌ Error accessing microphone:', error);
+      alert(`Could not access microphone: ${error.message}\n\nPlease check:\n1. Microphone permissions\n2. Microphone is connected\n3. No other app is using the microphone\n\nUse text input instead.`);
     }
   };
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
+      console.log("⏹️ Stopping recording...");
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      console.log("⏹️ Recording stopped");
+      
+      // Stop audio stream
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(track => track.stop());
+        audioStreamRef.current = null;
+      }
     }
   };
 
@@ -110,7 +213,7 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
     formData.append('audio', audioBlob, 'recording.webm');
 
     try {
-      console.log('📤 Submitting audio to backend...');
+      console.log(`📤 Submitting ${audioBlob.size} bytes audio to backend...`);
       const response = await fetch(`http://127.0.0.1:8001/submit_human_input/${simId}`, {
         method: 'POST',
         body: formData,
@@ -124,10 +227,11 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
       console.log('✅ Server response:', data);
       
       if (data.success) {
-        console.log(`💬 Human said: "${data.transcribed_text}"`);
+        console.log(`💬 Transcribed: "${data.transcribed_text}"`);
         setIsHumanTurn(false);
       } else {
-        alert(`Could not transcribe audio: ${data.error}\n\nPlease use text input instead.`);
+        console.error("❌ Transcription failed:", data.error);
+        alert(`Could not transcribe audio:\n${data.error}\n\nPlease try:\n1. Speaking louder and clearer\n2. Reducing background noise\n3. Using text input instead`);
       }
     } catch (error) {
       console.error('❌ Error submitting audio:', error);
@@ -142,7 +246,7 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
     
     setIsProcessing(true);
     try {
-      console.log('📤 Submitting text to backend...');
+      console.log(`📤 Submitting text: "${textInput}"`);
       const response = await fetch(`http://127.0.0.1:8001/submit_human_input/${simId}?text=${encodeURIComponent(textInput)}`, {
         method: 'POST',
       });
@@ -200,7 +304,6 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
               console.log("📨 Received:", data);
               
               if (data.type === 'thinking') {
-                console.log(`💭 ${data.agent} is thinking...`);
                 setParticipants(prev =>
                   prev.map(p =>
                     p.name === data.agent
@@ -230,8 +333,6 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
                 setLoading(false);
 
               } else if (data.type === 'human_response') {
-                console.log('✅ Human responded:', data.text);
-                
                 setMessages(prev => [...prev, {
                   id: `msg-${Date.now()}`,
                   agent: 'You',
@@ -251,8 +352,6 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
                 setLoading(true);
 
               } else if (data.type === 'response') {
-                console.log(`✅ ${data.agent} responded:`, data.text);
-
                 setParticipants(prev =>
                   prev.map(p =>
                     p.name === data.agent
@@ -293,7 +392,6 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
                 );
 
               } else if (data.type === 'complete') {
-                console.log(`🎉 Round ${data.round} complete`);
                 setRound(data.round);
                 setParticipants(prev =>
                   prev.map(p => ({ ...p, status: 'waiting' }))
@@ -301,16 +399,22 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
               }
               
             } catch (e) {
-              console.error("❌ Error parsing SSE data:", e, "Raw:", jsonStr);
+              console.error("❌ Error parsing SSE data:", e);
             }
           }
         }
       }
     } catch (err) {
       console.error("❌ Error fetching next round:", err);
-      alert("Failed to fetch next round. Check console for details.");
+      alert("Failed to fetch next round");
     }
     setLoading(false);
+  };
+
+  const formatDuration = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -320,12 +424,34 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
       fontFamily: 'system-ui, -apple-system, sans-serif',
       background: '#f5f5f5'
     }}>
+      {/* System Status Banner */}
+      {systemStatus && (!systemStatus.vosk_model_loaded || !systemStatus.ffmpeg_available) && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          background: '#fff3cd',
+          color: '#856404',
+          padding: '10px 20px',
+          textAlign: 'center',
+          fontSize: '14px',
+          zIndex: 1000,
+          borderBottom: '2px solid #ffc107'
+        }}>
+          ⚠️ Voice input unavailable: {!systemStatus.vosk_model_loaded && 'Vosk model missing'} 
+          {!systemStatus.vosk_model_loaded && !systemStatus.ffmpeg_available && ' & '}
+          {!systemStatus.ffmpeg_available && 'FFmpeg not found'} - Use text input instead
+        </div>
+      )}
+
       {/* Participants Sidebar */}
       <div style={{
         width: '300px',
         background: 'white',
         borderRight: '1px solid #e0e0e0',
-        overflowY: 'auto'
+        overflowY: 'auto',
+        marginTop: systemStatus && (!systemStatus.vosk_model_loaded || !systemStatus.ffmpeg_available) ? '42px' : '0'
       }}>
         <div style={{
           padding: '20px',
@@ -357,7 +483,7 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
               justifyContent: 'center',
               fontSize: '20px'
             }}>
-              {p.name === 'You' ? '👤' : ''}
+              {p.name === 'You' ? '👤' : '🤖'}
             </div>
             <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{p.name}</div>
             <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>{p.role}</div>
@@ -378,7 +504,12 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
       </div>
 
       {/* Main Discussion */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ 
+        flex: 1, 
+        display: 'flex', 
+        flexDirection: 'column',
+        marginTop: systemStatus && (!systemStatus.vosk_model_loaded || !systemStatus.ffmpeg_available) ? '42px' : '0'
+      }}>
         <div style={{
           background: 'white',
           padding: '20px',
@@ -389,7 +520,7 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
             AI Group Discussion with Human
           </div>
           <div style={{ color: '#666', marginBottom: '15px' }}>
-            Topic: {topic || "Topic not set"}
+            Topic: {topic}
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button 
@@ -405,7 +536,7 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
                 opacity: (loading && !simId) || simId ? 0.7 : 1
               }}
             >
-              {loading && !simId ? "Starting..." : simId ? "✓ Simulation Started" : "Start Simulation"}
+              {loading && !simId ? "Starting..." : simId ? "✓ Started" : "Start Simulation"}
             </button>
             <button 
               onClick={fetchNextRound} 
@@ -425,13 +556,12 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
           </div>
         </div>
 
-        {/* Discussion Messages */}
+        {/* Messages */}
         <div style={{
           flex: 1,
           overflowY: 'auto',
           padding: '20px',
-          background: '#f9f9f9',
-          position: 'relative'
+          background: '#f9f9f9'
         }}>
           {messages.length === 0 ? (
             <div style={{
@@ -440,9 +570,9 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
               marginTop: '40px',
               fontSize: '16px'
             }}>
-              Start the simulation and click "Next Round" to begin the discussion.
+              Start the simulation and click "Next Round" to begin
               <br /><br />
-              💡 You will get a chance to speak in each round!
+              💡 You'll get a chance to speak in each round!
             </div>
           ) : (
             messages.map((msg) => (
@@ -454,8 +584,7 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
                 marginBottom: '15px',
                 marginLeft: msg.isHuman ? '40px' : '0',
                 marginRight: msg.isHuman ? '0' : '40px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                animation: 'slideIn 0.3s ease-out'
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
               }}>
                 <div style={{
                   display: 'flex',
@@ -472,10 +601,9 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
                     marginRight: '10px',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '18px'
+                    justifyContent: 'center'
                   }}>
-                    {msg.isHuman ? '👤' : ''}
+                    {msg.isHuman ? '👤' : '🤖'}
                   </div>
                   <div>
                     <div style={{ fontWeight: 'bold' }}>{msg.agent}</div>
@@ -488,28 +616,18 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
                   </div>
                 </div>
                 {msg.isThinking ? (
-                  <div style={{
-                    color: '#666',
-                    fontStyle: 'italic',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}>
-                    <div style={{ animation: 'pulse 1.5s ease-in-out infinite' }}>💭</div>
-                    Thinking...
-                  </div>
+                  <div style={{ fontStyle: 'italic', opacity: 0.7 }}>💭 Thinking...</div>
                 ) : (
-                  <div style={{ lineHeight: '1.6' }}>{msg.text}</div>
+                  <div>{msg.text}</div>
                 )}
               </div>
             ))
           )}
           <div ref={messagesEndRef} />
 
-          {/* Voice Recording & Text Input - Floating */}
+          {/* Voice & Text Input */}
           {isHumanTurn && (
             <>
-              {/* Voice Button */}
               <div style={{
                 position: 'fixed',
                 bottom: '100px',
@@ -539,23 +657,25 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
                     fontSize: '36px',
                     cursor: isProcessing ? 'not-allowed' : 'pointer',
                     boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
-                    transition: 'all 0.3s',
-                    animation: isRecording ? 'pulse 1.5s ease-in-out infinite' : 'none'
+                    transition: 'all 0.3s'
                   }}
                 >
                   {isProcessing ? '⏳' : isRecording ? '⏹️' : '🎤'}
                 </button>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontWeight: 'bold', fontSize: '18px', marginBottom: '5px' }}>
-                    {isProcessing ? 'Processing...' : isRecording ? '🔴 Recording...' : 'Your Turn'}
+                <div>
+                  <div style={{ fontWeight: 'bold', fontSize: '18px' }}>
+                    {isProcessing ? 'Processing...' : 
+                     isRecording ? `🔴 ${formatDuration(recordingDuration)}` : 
+                     'Your Turn'}
                   </div>
                   <div style={{ fontSize: '14px', color: '#666' }}>
-                    {isProcessing ? 'Transcribing...' : isRecording ? 'Click to stop & submit' : 'Click mic to record'}
+                    {isProcessing ? 'Transcribing audio...' : 
+                     isRecording ? 'Click to stop' : 
+                     'Click mic to record'}
                   </div>
                 </div>
               </div>
 
-              {/* Text Input Fallback */}
               <div style={{
                 position: 'fixed',
                 bottom: '20px',
@@ -581,15 +701,14 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
                         submitText();
                       }
                     }}
-                    placeholder="Type here and press Enter..."
+                    placeholder="Type and press Enter..."
                     disabled={isProcessing}
                     style={{
                       flex: 1,
                       padding: '10px',
                       border: '2px solid #e0e0e0',
                       borderRadius: '8px',
-                      fontSize: '14px',
-                      outline: 'none'
+                      fontSize: '14px'
                     }}
                   />
                   <button
@@ -602,8 +721,7 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
                       border: 'none',
                       borderRadius: '8px',
                       cursor: (!textInput.trim() || isProcessing) ? 'not-allowed' : 'pointer',
-                      opacity: (!textInput.trim() || isProcessing) ? 0.5 : 1,
-                      fontWeight: 'bold'
+                      opacity: (!textInput.trim() || isProcessing) ? 0.5 : 1
                     }}
                   >
                     Send
@@ -623,28 +741,11 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
           fontSize: '14px',
           color: '#666'
         }}>
-          <span>{loading ? '🔴 Processing...' : '⚪ Ready'}</span>
+          <span>{loading ? '🔴 Processing' : '⚪ Ready'}</span>
           <span>Round {round}</span>
-          <span>{participants.length} participants (including you)</span>
+          <span>{participants.length} participants</span>
         </div>
       </div>
-
-      <style>{`
-        @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.1); }
-        }
-      `}</style>
     </div>
   );
 }
