@@ -19,6 +19,7 @@ import wave
 from vosk import Model, KaldiRecognizer
 import subprocess
 import shutil
+import whisper
 
 # -------------------------
 # 🔐 Gemini Setup
@@ -50,9 +51,9 @@ def setup_ffmpeg():
     
     print("[ERROR] ❌ FFmpeg not found!")
     print("[INFO] 💡 Install FFmpeg:")
-    print("       Windows: Download from https://ffmpeg.org/download.html")
-    print("       Linux: sudo apt-get install ffmpeg")
-    print("       Mac: brew install ffmpeg")
+    print("  Windows: Download from https://ffmpeg.org/download.html")
+    print("  Linux: sudo apt-get install ffmpeg")
+    print("  Mac: brew install ffmpeg")
     return False
 
 ffmpeg_available = setup_ffmpeg()
@@ -61,10 +62,20 @@ genai.configure(api_key=API_KEY)
 chat_model = genai.GenerativeModel("models/gemini-2.5-flash-preview-09-2025")
 
 # -------------------------
-# 🎤 Vosk Model Setup (Offline Speech Recognition)
+# 🎤 Whisper Model Setup
+# -------------------------
+print("[INFO] 🧠 Loading Whisper model...")
+try:
+    whisper_model = whisper.load_model("base")
+    print("[INFO] ✅ Whisper model loaded successfully")
+except Exception as e:
+    whisper_model = None
+    print(f"[ERROR] ❌ Failed to load Whisper model: {e}")
+
+# -------------------------
+# 🎤 Vosk Model Setup (Offline Speech Recognition - Fallback)
 # -------------------------
 VOSK_MODEL_PATH = "vosk-model-small-en-us-0.15"
-
 print("[INFO] Loading Vosk speech recognition model...")
 if os.path.exists(VOSK_MODEL_PATH):
     try:
@@ -99,7 +110,6 @@ PERSONAS = [
 # -------------------------
 # 🧩 Helper Functions
 # -------------------------
-
 def safe_generate(prompt, timeout=60):
     """Call Gemini safely with timeout and debugging."""
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -125,28 +135,82 @@ def text_to_audio_base64(text, agent_name):
             "Agent 3": "co.uk",
             "Agent 4": "com.au"
         }
-
         tld = accent_map.get(agent_name, "com")
         tts = gTTS(text, lang="en", tld=tld, slow=False)
-
         audio_bytes = io.BytesIO()
         tts.write_to_fp(audio_bytes)
         audio_bytes.seek(0)
-
         return base64.b64encode(audio_bytes.read()).decode("utf-8")
-
     except Exception as e:
         print(f"[ERROR] TTS failed: {e}")
         return None
 
+def transcribe_audio_whisper(audio_file):
+    """
+    ✅ PRIMARY: Transcribe audio using Whisper (more accurate)
+    """
+    temp_path = None
+    try:
+        # Check prerequisites
+        if whisper_model is None:
+            print("[ERROR] ❌ Whisper model not loaded")
+            return None
+        
+        if not ffmpeg_available:
+            print("[ERROR] ❌ FFmpeg not available (required for Whisper)")
+            return None
+        
+        # Read uploaded audio
+        audio_data = audio_file.read()
+        audio_file.seek(0)
+        print(f"[DEBUG] 🎤 Received audio: {len(audio_data)} bytes")
+        
+        if len(audio_data) < 1000:
+            print("[ERROR] ❌ Audio file too small (likely empty recording)")
+            return None
+        
+        # Create temp file
+        temp_dir = tempfile.gettempdir()
+        timestamp = int(time.time() * 1000)
+        temp_path = os.path.join(temp_dir, f"whisper_audio_{timestamp}.webm")
+        
+        with open(temp_path, 'wb') as f:
+            f.write(audio_data)
+        
+        print(f"[DEBUG] 💾 Saved audio to: {temp_path}")
+        print("[DEBUG] 🧠 Transcribing with Whisper...")
+        
+        # Transcribe with Whisper
+        result = whisper_model.transcribe(temp_path)
+        transcribed_text = result["text"].strip()
+        
+        if transcribed_text:
+            print(f"[SUCCESS] ✅ Whisper transcribed: '{transcribed_text}'")
+            return transcribed_text
+        else:
+            print("[ERROR] ❌ Whisper returned empty transcription")
+            return None
+            
+    except Exception as e:
+        print(f"[ERROR] ❌ Whisper transcription failed: {e}")
+        import traceback
+        print(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
+        return None
+    finally:
+        # Cleanup temp file
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+                print(f"[DEBUG] 🗑️ Cleaned up: {temp_path}")
+            except Exception as e:
+                print(f"[WARNING] ⚠️ Could not delete {temp_path}: {e}")
 
 def transcribe_audio_vosk(audio_file):
     """
-    ✅ IMPROVED: Enhanced transcription with better error handling and debugging
+    ✅ FALLBACK: Enhanced transcription with Vosk (used if Whisper fails)
     """
     webm_path = None
     wav_path = None
-
     try:
         # Check prerequisites
         if vosk_model is None:
@@ -156,7 +220,7 @@ def transcribe_audio_vosk(audio_file):
         if not ffmpeg_available:
             print("[ERROR] ❌ FFmpeg not available")
             return None
-
+        
         # Read uploaded audio
         audio_data = audio_file.read()
         audio_file.seek(0)
@@ -165,11 +229,11 @@ def transcribe_audio_vosk(audio_file):
         if len(audio_data) < 1000:
             print("[ERROR] ❌ Audio file too small (likely empty recording)")
             return None
-
+        
         # Create temp directory if it doesn't exist
         temp_dir = tempfile.gettempdir()
         print(f"[DEBUG] 📁 Using temp directory: {temp_dir}")
-
+        
         # Save WebM temporarily with unique filename
         timestamp = int(time.time() * 1000)
         webm_path = os.path.join(temp_dir, f"recording_{timestamp}.webm")
@@ -177,11 +241,11 @@ def transcribe_audio_vosk(audio_file):
         
         with open(webm_path, 'wb') as f:
             f.write(audio_data)
-        print(f"[DEBUG] 💾 Saved WebM to: {webm_path}")
-
-        # 🔄 Convert WebM → WAV using FFmpeg with verbose output
-        print("[DEBUG] 🔄 Converting WebM → WAV using FFmpeg...")
         
+        print(f"[DEBUG] 💾 Saved WebM to: {webm_path}")
+        
+        # 🔄 Convert WebM → WAV using FFmpeg
+        print("[DEBUG] 🔄 Converting WebM → WAV using FFmpeg...")
         ffmpeg_cmd = [
             "ffmpeg",
             "-y",  # Overwrite output file
@@ -194,7 +258,6 @@ def transcribe_audio_vosk(audio_file):
         ]
         
         print(f"[DEBUG] Running: {' '.join(ffmpeg_cmd)}")
-        
         result = subprocess.run(
             ffmpeg_cmd,
             capture_output=True,
@@ -208,7 +271,7 @@ def transcribe_audio_vosk(audio_file):
             return None
         
         print(f"[DEBUG] ✅ FFmpeg conversion successful")
-
+        
         # Verify WAV file exists and has content
         if not os.path.exists(wav_path):
             print("[ERROR] ❌ WAV file was not created")
@@ -220,17 +283,16 @@ def transcribe_audio_vosk(audio_file):
         if wav_size < 1000:
             print("[ERROR] ❌ WAV file too small (conversion likely failed)")
             return None
-
+        
         # Open WAV file
         wf = wave.open(wav_path, "rb")
-        
         print(f"[DEBUG] 📊 WAV properties:")
         print(f"  - Channels: {wf.getnchannels()}")
         print(f"  - Sample width: {wf.getsampwidth()}")
         print(f"  - Frame rate: {wf.getframerate()}")
         print(f"  - Frames: {wf.getnframes()}")
         print(f"  - Duration: {wf.getnframes() / wf.getframerate():.2f}s")
-
+        
         # Validate WAV format
         if wf.getnchannels() != 1 or wf.getsampwidth() != 2:
             print("[ERROR] ❌ Invalid WAV format for Vosk")
@@ -238,15 +300,15 @@ def transcribe_audio_vosk(audio_file):
             print(f"  Got: {wf.getnchannels()} channels, {wf.getsampwidth()} bytes")
             wf.close()
             return None
-
+        
         # Create recognizer
         print("[DEBUG] 🎯 Creating Vosk recognizer...")
         rec = KaldiRecognizer(vosk_model, wf.getframerate())
         rec.SetWords(True)
-
+        
         result_text = ""
         frames_processed = 0
-
+        
         print("[DEBUG] 🔍 Starting transcription...")
         while True:
             data = wf.readframes(4000)
@@ -254,13 +316,14 @@ def transcribe_audio_vosk(audio_file):
                 break
             
             frames_processed += 1
+            
             if rec.AcceptWaveform(data):
                 part_result = json.loads(rec.Result())
                 part_text = part_result.get("text", "")
                 if part_text:
                     print(f"[DEBUG] 📝 Partial result: '{part_text}'")
                     result_text += part_text + " "
-
+        
         # Get final result
         final_result = json.loads(rec.FinalResult())
         final_text = final_result.get("text", "")
@@ -272,9 +335,9 @@ def transcribe_audio_vosk(audio_file):
         
         result_text = result_text.strip()
         print(f"[DEBUG] 📊 Processed {frames_processed} frame chunks")
-
+        
         if result_text:
-            print(f"[SUCCESS] ✅ Transcribed: '{result_text}'")
+            print(f"[SUCCESS] ✅ Vosk transcribed: '{result_text}'")
             return result_text
         else:
             print("[ERROR] ❌ No speech detected in audio")
@@ -284,21 +347,18 @@ def transcribe_audio_vosk(audio_file):
             print("  - Recording too short")
             print("  - Microphone not working properly")
             return None
-
+            
     except subprocess.TimeoutExpired:
         print("[ERROR] ❌ FFmpeg conversion timeout (>30s)")
         return None
-    
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] ❌ FFmpeg failed: {e}")
         return None
-
     except Exception as e:
         print(f"[ERROR] ❌ Vosk transcription failed: {e}")
         import traceback
         print(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
         return None
-
     finally:
         # Cleanup temp files
         for path in [webm_path, wav_path]:
@@ -309,9 +369,27 @@ def transcribe_audio_vosk(audio_file):
                 except Exception as e:
                     print(f"[WARNING] ⚠️ Could not delete {path}: {e}")
 
-
-# Alias for compatibility
-transcribe_audio = transcribe_audio_vosk
+def transcribe_audio(audio_file):
+    """
+    ✅ HYBRID: Try Whisper first (more accurate), fallback to Vosk
+    """
+    print("[INFO] 🎯 Attempting transcription with Whisper (primary)...")
+    
+    # Try Whisper first
+    if whisper_model is not None:
+        result = transcribe_audio_whisper(audio_file)
+        if result:
+            return result
+        print("[WARNING] ⚠️ Whisper failed, trying Vosk fallback...")
+    else:
+        print("[WARNING] ⚠️ Whisper not available, using Vosk...")
+    
+    # Fallback to Vosk
+    if vosk_model is not None:
+        return transcribe_audio_vosk(audio_file)
+    
+    print("[ERROR] ❌ Both Whisper and Vosk unavailable")
+    return None
 
 # -------------------------
 # 🗣️ Agent Class
@@ -320,12 +398,12 @@ class Agent:
     def __init__(self, name, persona):
         self.name = name
         self.persona = persona
-
+    
     def prepare_prompt(self, topic, utterances, is_first=False, human_just_spoke=False):
         full_discussion = "\n".join(
             f"- {u['agent']}: {u['text']}" for u in utterances
         )
-
+        
         last_remark = utterances[-1]["text"] if utterances else ""
         last_speaker = utterances[-1]["agent"] if utterances else ""
         
@@ -333,6 +411,7 @@ class Agent:
             return f"""
 You are {self.name}, a participant in a group discussion.
 Your style: {self.persona}.
+
 Topic: {topic}
 
 You are the first to speak. Start naturally with your viewpoint (under 80 words).
@@ -348,8 +427,7 @@ Rules:
 - Do NOT explain too much
 - 25–50 words only
 
-You may naturally use phrases like:
-"I think", "Honestly", "I feel", "To be fair", "I agree, but"
+You may naturally use phrases like: "I think", "Honestly", "I feel", "To be fair", "I agree, but"
 """
         
         human_context = ""
@@ -359,15 +437,16 @@ You may naturally use phrases like:
         return f"""
 You are {self.name}, a participant in a group discussion.
 Your style: {self.persona}.
+
 Topic: {topic}
 
 Discussion so far (for your awareness only, do NOT summarize or repeat it):
 {full_discussion or "No prior remarks."}
 
-Most recent comment from {last_speaker}:
-"{last_remark}"{human_context}
+Most recent comment from {last_speaker}: "{last_remark}"{human_context}
 
 Respond naturally in under 80 words, staying consistent with your persona.
+
 Speak like a normal college student in a group discussion.
 
 Rules:
@@ -380,10 +459,9 @@ Rules:
 - 25–50 words only
 {"- Acknowledge the human's point naturally if they just spoke" if human_just_spoke else ""}
 
-You may naturally use phrases like:
-"I think", "Honestly", "I feel", "To be fair", "I agree, but"
+You may naturally use phrases like: "I think", "Honestly", "I feel", "To be fair", "I agree, but"
 """
-
+    
     def generate_response(self, prompt):
         print(f"[DEBUG] {self.name} is generating response...")
         text = safe_generate(prompt)
@@ -429,9 +507,10 @@ def start_simulation(req: SimulationRequest):
     print(f"👥 Agents: {req.num_agents}")
     print(f"🔄 Rounds: {req.rounds}")
     print(f"🎤 Human Participant: {req.human_participant}")
-
+    
     selected_personas = random.sample(PERSONAS, req.num_agents)
     agents = [Agent(f"Agent {i+1}", persona) for i, persona in enumerate(selected_personas)]
+    
     sim_id = str(len(SIMULATIONS) + 1)
     SIMULATIONS[sim_id] = {
         "topic": req.topic,
@@ -442,13 +521,13 @@ def start_simulation(req: SimulationRequest):
         "human_participant": req.human_participant,
         "awaiting_human": False
     }
-
+    
     print(f"\n✅ Simulation ID: {sim_id}")
     print("👥 Agent Lineup:")
     for a in agents:
-        print(f"   • {a.name}: {a.persona}")
+        print(f"  • {a.name}: {a.persona}")
     print(f"{'='*60}\n")
-
+    
     agent_list = [{"name": agent.name, "persona": agent.persona} for agent in agents]
     return {"simulation_id": sim_id, "agents": agent_list}
 
@@ -468,20 +547,19 @@ async def submit_human_input(sim_id: str, audio: Optional[UploadFile] = File(Non
     # Get human input
     human_text = None
     if audio:
-        print("🎤 Processing voice input with Vosk...")
+        print("🎤 Processing voice input (Whisper primary, Vosk fallback)...")
         human_text = transcribe_audio(audio.file)
     elif text:
-        print(f"⌨️  Processing text input: '{text}'")
+        print(f"⌨️ Processing text input: '{text}'")
         human_text = text
     
     if not human_text:
         error_msg = "Could not transcribe audio. "
-        if not vosk_model:
-            error_msg += "Vosk model not loaded. "
+        if not whisper_model and not vosk_model:
+            error_msg += "No speech recognition models loaded. "
         if not ffmpeg_available:
             error_msg += "FFmpeg not available. "
         error_msg += "Please use text input instead."
-        
         print(f"❌ ERROR: {error_msg}")
         return {"error": error_msg}
     
@@ -494,7 +572,6 @@ async def submit_human_input(sim_id: str, audio: Optional[UploadFile] = File(Non
         "text": human_text,
         "audio": None
     })
-    
     sim["awaiting_human"] = False
     
     return {"success": True, "transcribed_text": human_text}
@@ -503,16 +580,17 @@ async def submit_human_input(sim_id: str, audio: Optional[UploadFile] = File(Non
 def next_round(sim_id: str):
     if sim_id not in SIMULATIONS:
         return {"error": "Simulation ID not found."}
-
+    
     sim = SIMULATIONS[sim_id]
+    
     if sim["current_round"] >= sim["total_rounds"]:
         return {"message": "Simulation completed.", "utterances": sim["utterances"]}
-
+    
     utterances = sim["utterances"]
     agents = sim["agents"]
     topic = sim["topic"]
     human_participant = sim["human_participant"]
-
+    
     speaking_order = []
     if human_participant:
         all_speakers = agents.copy()
@@ -529,12 +607,11 @@ def next_round(sim_id: str):
     
     def generate():
         human_just_spoke = False
-        
         for i, speaker in enumerate(speaking_order):
             if speaker == "HUMAN_TURN":
                 print(f"\n🎤 {'='*50}")
-                print(f"   YOUR TURN TO SPEAK!")
-                print(f"   {'='*50}\n")
+                print(f"  YOUR TURN TO SPEAK!")
+                print(f"  {'='*50}\n")
                 
                 yield f"data: {json.dumps({'type': 'human_turn'})}\n\n"
                 sim["awaiting_human"] = True
@@ -554,27 +631,25 @@ def next_round(sim_id: str):
                 print(f"✅ Human response submitted: \"{human_utterance['text']}\"")
                 yield f"data: {json.dumps({'type': 'human_response', 'text': human_utterance['text']})}\n\n"
                 human_just_spoke = True
-                
             else:
                 agent = speaker
                 print(f"\n💭 {agent.name} is thinking...")
                 yield f"data: {json.dumps({'type': 'thinking', 'agent': agent.name})}\n\n"
                 
                 prompt = agent.prepare_prompt(
-                    topic, 
-                    utterances, 
+                    topic,
+                    utterances,
                     is_first=(sim["current_round"] == 0 and i == 0),
                     human_just_spoke=human_just_spoke
                 )
                 text = agent.generate_response(prompt)
                 audio_base64 = text_to_audio_base64(text, agent.name)
-
+                
                 data = {"agent": agent.name, "text": text, "audio": audio_base64}
                 utterances.append(data)
-
-                print(f"🗣️  {agent.name}: \"{text}\"")
-                yield f"data: {json.dumps({'type': 'response', 'agent': agent.name, 'text': text, 'audio': audio_base64})}\n\n"
                 
+                print(f"🗣️ {agent.name}: \"{text}\"")
+                yield f"data: {json.dumps({'type': 'response', 'agent': agent.name, 'text': text, 'audio': audio_base64})}\n\n"
                 human_just_spoke = False
         
         sim["current_round"] += 1
@@ -595,6 +670,7 @@ def get_status(sim_id: str):
         "total_rounds": sim["total_rounds"],
         "awaiting_human": sim["awaiting_human"],
         "utterances_count": len(sim["utterances"]),
+        "whisper_loaded": whisper_model is not None,
         "vosk_loaded": vosk_model is not None,
         "ffmpeg_available": ffmpeg_available
     }
@@ -602,8 +678,19 @@ def get_status(sim_id: str):
 @app.get("/health")
 def health_check():
     """Check if all required components are available."""
+    status_msg = []
+    
+    if whisper_model is not None:
+        status_msg.append("Whisper (primary)")
+    if vosk_model is not None:
+        status_msg.append("Vosk (fallback)")
+    if not whisper_model and not vosk_model:
+        status_msg.append("No STT available")
+    
     return {
         "status": "ok",
+        "speech_recognition": " + ".join(status_msg) if status_msg else "unavailable",
+        "whisper_loaded": whisper_model is not None,
         "vosk_model_loaded": vosk_model is not None,
         "ffmpeg_available": ffmpeg_available,
         "vosk_model_path": VOSK_MODEL_PATH if os.path.exists(VOSK_MODEL_PATH) else "Not found"

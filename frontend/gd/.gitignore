@@ -1,5 +1,7 @@
+############################
 # Logs
-logs
+############################
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,24 +9,46 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+############################
+# Node / Frontend
+############################
+node_modules/
+dist/
+dist-ssr/
 *.local
 
-# Editor directories and files
+############################
+# Python Virtual Env & Secrets
+############################
+venv/
+.env
+
+############################
+# Python cache & build
+############################
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+build/
+dist/
+*.egg-info/
+
+############################
+# Databases
+############################
+*.db
+*.sqlite3
+
+############################
+# Editor / OS files
+############################
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-# Python cache files
-__pycache__/
-*.pyc
-
-# Database files
-*.db

@@ -117,12 +117,14 @@ def read_me(current_user: dict = Depends(auth.get_current_user)):
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint"""
     try:
-        # Test database connection
-        db = next(get_db())
+        db = database.SessionLocal()
         db.execute("SELECT 1")
         db.close()
-        return {"status": "healthy", "database": "connected"}
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "auth": "ready"
+        }
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
