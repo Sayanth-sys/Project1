@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 
 const initialParticipants = [
   { name: "Agent 1", role: "Analytical Thinker", status: "waiting" },
@@ -7,7 +8,13 @@ const initialParticipants = [
   { name: "Agent 4", role: "Innovation Expert", status: "waiting" }
 ];
 
-function DiscussionPage({ topic = "AI Ethics and Governance" }) {
+function DiscussionPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Get topic from location state (passed from TopicSelection)
+  const topic = location.state?.topic || "AI Ethics and Governance";
+  
   const [participants, setParticipants] = useState([
     ...initialParticipants,
     { name: "You", role: "Human Participant", status: "waiting" }
@@ -34,12 +41,10 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Check system health on mount
   useEffect(() => {
     checkSystemHealth();
   }, []);
 
-  // Recording timer
   useEffect(() => {
     if (isRecording) {
       recordingTimerRef.current = setInterval(() => {
@@ -79,11 +84,12 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
   const startSimulation = async () => {
     setLoading(true);
     try {
+      console.log("🎯 Starting simulation with topic:", topic);
       const res = await fetch("http://127.0.0.1:8001/start_simulation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          topic: topic, 
+          topic: topic,  // Use the topic from location state
           num_agents: 4, 
           rounds: 2,
           human_participant: true 
@@ -115,7 +121,6 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
   };
 
   const startRecording = async () => {
-    // Check system status first
     if (systemStatus && (!systemStatus.vosk_model_loaded || !systemStatus.ffmpeg_available)) {
       alert("Voice recording is not available. Missing:\n" + 
             (!systemStatus.vosk_model_loaded ? "- Vosk speech model\n" : "") +
@@ -139,7 +144,6 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
       audioStreamRef.current = stream;
       console.log("✅ Microphone access granted");
 
-      // Use webm format with opus codec for better compatibility
       const options = { mimeType: 'audio/webm;codecs=opus' };
       
       if (!MediaRecorder.isTypeSupported(options.mimeType)) {
@@ -163,7 +167,6 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         console.log(`📊 Audio blob size: ${audioBlob.size} bytes`);
         
-        // Stop all tracks
         stream.getTracks().forEach(track => {
           track.stop();
           console.log("🔇 Stopped audio track");
@@ -183,8 +186,7 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
         alert("Recording error: " + event.error);
       };
 
-      // Start recording with timeslice for continuous data
-      mediaRecorder.start(1000); // Collect data every second
+      mediaRecorder.start(1000);
       setIsRecording(true);
       console.log("🔴 Recording started with format:", options.mimeType);
     } catch (error) {
@@ -199,7 +201,6 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       
-      // Stop audio stream
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach(track => track.stop());
         audioStreamRef.current = null;
@@ -424,7 +425,6 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
       fontFamily: 'system-ui, -apple-system, sans-serif',
       background: '#f5f5f5'
     }}>
-      {/* System Status Banner */}
       {systemStatus && (!systemStatus.vosk_model_loaded || !systemStatus.ffmpeg_available) && (
         <div style={{
           position: 'fixed',
@@ -516,11 +516,26 @@ function DiscussionPage({ topic = "AI Ethics and Governance" }) {
           borderBottom: '1px solid #e0e0e0',
           boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
         }}>
-          <div style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>
-            AI Group Discussion with Human
-          </div>
-          <div style={{ color: '#666', marginBottom: '15px' }}>
-            Topic: {topic}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+            <div>
+              
+              <div style={{ color: '#666' }}>
+                Topic: <strong>{topic}</strong>
+              </div>
+            </div>
+            <button 
+              onClick={() => navigate('/home')}
+              style={{
+                padding: '10px 20px',
+                background: '#6c757d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer'
+              }}
+            >
+              End Discussion
+            </button>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button 

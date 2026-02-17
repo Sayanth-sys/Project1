@@ -1,10 +1,13 @@
-html, body, #root, .app-bg, .main-content {
+/* Clean App.css - Remove duplicate navbar styles */
+
+html, body, #root {
   height: 100%;
   width: 100%;
   margin: 0;
   padding: 0;
 }
 
+/* Login/Signup Pages */
 .center-screen {
   min-height: 100vh;
   min-width: 100vw;
@@ -14,203 +17,6 @@ html, body, #root, .app-bg, .main-content {
   background: #f7fafc;
 }
 
-
-.page-title {
-  font-size: 1.45rem;
-  font-weight: 700;
-  margin-bottom: 18px;
-  color: #222c3c;
-}
-.login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.input:focus { border-color: #4484fc; }
-
-.primary-btn:hover { background: #3253b3; }
-
-.row { display: flex; flex-direction: row; gap: 18px; margin-bottom: 15px; }
-.gap { margin-bottom: 15px; }
-.label { margin-bottom: 6px; font-size: 0.97rem; font-weight: 500; color: #343b45; }
-.subtitle { color: #8492a6; font-size: 1rem; margin-bottom: 23px; }
-
-/* Navbar */
-.navbar {
-  height: 56px;
-  background: #fff;
-  box-shadow: 0 2px 8px #e3e7ed;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  padding: 0 36px;
-  position: fixed;
-  top: 0;
-  width: 100%;     /* ✅ use 100% instead of 100vw */
-  z-index: 997;
-  box-sizing: border-box; /* ensures padding stays inside width */
-}
-
-.navbar-logo {
-  font-size: 1.28rem;
-  font-weight: 600;
-  color: #222;
-}
-.navbar-user {
-  margin-left: auto;
-  color: #132257;
-  font-size: 1rem;
-  font-weight: 500;
-  white-space: nowrap;     /* Prevents text from breaking into multiple lines */
-  overflow: visible;       /* Ensures text isn't hidden */
-  text-overflow: unset;    /* Prevents clipping with ellipsis */
-  padding-right: 1rem;     /* Adds breathing room from edge */
-  max-width: 100%;         /* Makes sure text can expand within navbar */
-}
-
-
-/* Discussion and Participants as before (reuse previous .discussion-container etc) */
-.discussion-container {
-  display: flex;
-  width: 100vw;
-  height: 100vh;
-  margin: 0;
-  min-height: 100vh;
-}
-.participants-sidebar {
-  width: 220px;
-  background: #f8fafc;
-  border-right: 1.5px solid #e3e7ed;
-  padding: 26px 10px;
-  border-radius: 12px 0 0 12px;
-  box-shadow: 0px 6px 24px rgba(227,231,237,0.13);
-}
-.sidebar-header {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: #183256;
-  margin-bottom: 19px;
-}
-.participant {
-  display: flex;
-  align-items: flex-start;
-  padding: 9px 0 13px 0;
-  margin-bottom: 7px;
-  border-radius: 8px;
-  background: none;
-}
-.participant.active {
-  background: #e9f1fd;
-}
-.avatar {
-  background: #dbeafe;
-  border-radius: 50%;
-  width: 39px;
-  height: 39px;
-  margin-right: 14px;
-  flex-shrink: 0;
-}
-.participant-name {
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: #193188;
-}
-.participant-role {
-  font-size: 0.92rem;
-  color: #7d7d94;
-}
-.participant-status {
-  font-size: 0.87rem;
-  color: #1e5cc7;
-  font-weight: 500;
-}
-.main-discussion {
-  flex: 1;
-  background: #fff;
-  border-radius: 0 12px 12px 0;
-  box-shadow: 0px 6px 24px rgba(227,231,237,0.13);
-  margin-left: -7px;
-  padding-bottom: 0;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-}
-.discussion-header {
-  padding: 24px 30px 8px 34px;
-  border-bottom: 1.5px solid #e3e7ed;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.discussion-title {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: #183256;
-}
-.discussion-topic {
-  color: #3c4373;
-  font-size: 0.98rem;
-}
-.end-btn {
-  color: #fff;
-  background: #e44848;
-  padding: 7px 17px;
-  border: none;
-  border-radius: 6px;
-  font-weight: 600;
-  font-size: 0.97rem;
-  cursor: pointer;
-  transition: background 0.18s;
-}
-.end-btn:hover {
-  background: #c02121;
-}
-.discussion-messages {
-  padding: 18px 32px 0 34px;
-  flex: 1;
-  overflow-y: auto;
-}
-.single-message {
-  background: #f9fbff;
-  padding: 22px 17px;
-  border-radius: 9px;
-  margin-bottom: 24px;
-  border: 1.1px solid #e3e7ed;
-  box-shadow: 0px 2px 10px #f0f5fd85;
-}
-.msg-header {
-  margin-bottom: 3px;
-  font-weight: 600;
-  font-size: 1rem;
-  color: #3062d1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.msg-author {
-  margin-right: 5px;
-}
-.msg-role {
-  font-weight: 400;
-  font-size: 0.94rem;
-  color: #7283b2;
-}
-.msg-content {
-  font-size: 0.99rem;
-  color: #292e3e;
-}
-.discussion-footer {
-  border-top: 1.5px solid #e3e7ed;
-  padding: 10px 32px;
-  font-size: 0.98rem;
-  color: #78819e;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #f8fafc;
-  border-radius: 0 0 12px 0;
-}
 .box-container {
   background: #fff;
   border-radius: 14px;
@@ -223,6 +29,13 @@ html, body, #root, .app-bg, .main-content {
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+.page-title {
+  font-size: 1.45rem;
+  font-weight: 700;
+  margin-bottom: 18px;
+  color: #222c3c;
 }
 
 .login-form {
@@ -244,6 +57,11 @@ html, body, #root, .app-bg, .main-content {
   transition: border-color 0.2s;
 }
 
+.input:focus { 
+  border-color: #4484fc;
+  outline: none;
+}
+
 .primary-btn {
   width: 100%;
   background: #284ebd;
@@ -258,6 +76,10 @@ html, body, #root, .app-bg, .main-content {
   transition: background 0.23s;
 }
 
+.primary-btn:hover { 
+  background: #3253b3; 
+}
+
 .card {
   background: #f6f8fa;
   border-radius: 10px;
@@ -270,6 +92,194 @@ html, body, #root, .app-bg, .main-content {
   gap: 15px;
 }
 
+.row { 
+  display: flex; 
+  flex-direction: row; 
+  gap: 18px; 
+  margin-bottom: 15px; 
+}
+
+.gap { 
+  margin-bottom: 15px; 
+}
+
+.label { 
+  margin-bottom: 6px; 
+  font-size: 0.97rem; 
+  font-weight: 500; 
+  color: #343b45; 
+}
+
+.subtitle { 
+  color: #8492a6; 
+  font-size: 1rem; 
+  margin-bottom: 23px; 
+}
+
+/* Discussion Page Styles */
+.discussion-container {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  min-height: 100vh;
+}
+
+.participants-sidebar {
+  width: 220px;
+  background: #f8fafc;
+  border-right: 1.5px solid #e3e7ed;
+  padding: 26px 10px;
+  border-radius: 12px 0 0 12px;
+  box-shadow: 0px 6px 24px rgba(227,231,237,0.13);
+}
+
+.sidebar-header {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #183256;
+  margin-bottom: 19px;
+}
+
+.participant {
+  display: flex;
+  align-items: flex-start;
+  padding: 9px 0 13px 0;
+  margin-bottom: 7px;
+  border-radius: 8px;
+  background: none;
+}
+
+.participant.active {
+  background: #e9f1fd;
+}
+
+.avatar {
+  background: #dbeafe;
+  border-radius: 50%;
+  width: 39px;
+  height: 39px;
+  margin-right: 14px;
+  flex-shrink: 0;
+}
+
+.participant-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #193188;
+}
+
+.participant-role {
+  font-size: 0.92rem;
+  color: #7d7d94;
+}
+
+.participant-status {
+  font-size: 0.87rem;
+  color: #1e5cc7;
+  font-weight: 500;
+}
+
+.main-discussion {
+  flex: 1;
+  background: #fff;
+  border-radius: 0 12px 12px 0;
+  box-shadow: 0px 6px 24px rgba(227,231,237,0.13);
+  margin-left: -7px;
+  padding-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.discussion-header {
+  padding: 24px 30px 8px 34px;
+  border-bottom: 1.5px solid #e3e7ed;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.discussion-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #183256;
+}
+
+.discussion-topic {
+  color: #3c4373;
+  font-size: 0.98rem;
+}
+
+.end-btn {
+  color: #fff;
+  background: #e44848;
+  padding: 7px 17px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.97rem;
+  cursor: pointer;
+  transition: background 0.18s;
+}
+
+.end-btn:hover {
+  background: #c02121;
+}
+
+.discussion-messages {
+  padding: 18px 32px 0 34px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.single-message {
+  background: #f9fbff;
+  padding: 22px 17px;
+  border-radius: 9px;
+  margin-bottom: 24px;
+  border: 1.1px solid #e3e7ed;
+  box-shadow: 0px 2px 10px #f0f5fd85;
+}
+
+.msg-header {
+  margin-bottom: 3px;
+  font-weight: 600;
+  font-size: 1rem;
+  color: #3062d1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.msg-author {
+  margin-right: 5px;
+}
+
+.msg-role {
+  font-weight: 400;
+  font-size: 0.94rem;
+  color: #7283b2;
+}
+
+.msg-content {
+  font-size: 0.99rem;
+  color: #292e3e;
+}
+
+.discussion-footer {
+  border-top: 1.5px solid #e3e7ed;
+  padding: 10px 32px;
+  font-size: 0.98rem;
+  color: #78819e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+  border-radius: 0 0 12px 0;
+}
+
+/* Responsive */
 @media (max-width: 500px) {
   .box-container {
     min-width: unset;
@@ -277,4 +287,3 @@ html, body, #root, .app-bg, .main-content {
     padding: 18px 3vw;
   }
 }
-
