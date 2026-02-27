@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
-import google.generativeai as genai
+from google import genai
 from typing import List, Dict, Optional
 import json
 from gtts import gTTS
@@ -20,6 +20,8 @@ from vosk import Model, KaldiRecognizer
 import subprocess
 import shutil
 import whisper
+from database import SessionLocal
+from models import Discussion, HumanResponse
 
 # -------------------------
 # 🔐 Gemini Setup
@@ -57,9 +59,8 @@ def setup_ffmpeg():
     return False
 
 ffmpeg_available = setup_ffmpeg()
+client = genai.Client(api_key=API_KEY)
 
-genai.configure(api_key=API_KEY)
-chat_model = genai.GenerativeModel("models/gemini-2.5-flash-preview-09-2025")
 
 # -------------------------
 # 🎤 Whisper Model Setup
@@ -112,28 +113,82 @@ PERSONAS = [
 # -------------------------
 def safe_generate(prompt, timeout=60):
     """Call Gemini safely with timeout and debugging."""
+
+    def call_gemini():
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+        return response.text if response and hasattr(response, "text") else None
+
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        future = executor.submit(chat_model.generate_content, prompt)
+        future = executor.submit(call_gemini)
+
         try:
-            response = future.result(timeout=timeout)
-            text = response.text.strip() if response and hasattr(response, "text") else "[No response from Gemini]"
-            print(f"[DEBUG] Generated response: {text}")
-            return text
+            text = future.result(timeout=timeout)
+            if text:
+                text = text.strip()
+                print(f"[DEBUG] Generated response: {text}")
+                return text
+            return "[No response from Gemini]"
+
         except concurrent.futures.TimeoutError:
             print("[TIMEOUT] Gemini took too long for this prompt.")
             return "[Timeout error]"
+
         except Exception as e:
             print(f"[ERROR] During Gemini generation: {e}")
-            return f"[Error: {e}]"
+            return f"[Error: {e}]" 
+
+
+def generate_human_feedback(text: str, topic: str):
+    """
+    Generate evaluation scores + feedback using Gemini.
+    """
+
+    prompt = f"""
+You are an English communication evaluator.
+
+Topic: {topic}
+
+Student Response:
+"{text}"
+
+Evaluate from 1-10:
+- Grammar
+- Clarity
+- Relevance to topic
+- Politeness / tone
+
+Return strictly in JSON:
+
+{{
+  "grammar_score": int,
+  "clarity_score": int,
+  "relevance_score": int,
+  "politeness_score": int,
+  "feedback": "Constructive feedback (80-120 words)"
+}}
+
+No extra text.
+"""
+
+    response_text = safe_generate(prompt)
+
+    try:
+        cleaned = response_text.strip().replace("```json", "").replace("```", "")
+        return json.loads(cleaned)
+    except:
+        return None
 
 def text_to_audio_base64(text, agent_name):
     """Convert text to audio with agent-specific accent."""
     try:
         accent_map = {
             "Agent 1": "co.in",
-            "Agent 2": "com",
-            "Agent 3": "co.uk",
-            "Agent 4": "com.au"
+            #"Agent 2": "com",
+            #"Agent 3": "co.uk",
+            #"Agent 4": "com.au"
         }
         tld = accent_map.get(agent_name, "com")
         tts = gTTS(text, lang="en", tld=tld, slow=False)
@@ -488,8 +543,8 @@ SIMULATIONS = {}
 
 class SimulationRequest(BaseModel):
     topic: str
-    num_agents: int = 4
-    rounds: int = 2
+    num_agents: int = 1
+    rounds: int = 3
     human_participant: bool = True
 
 class HumanInputRequest(BaseModel):
@@ -500,6 +555,7 @@ class HumanInputRequest(BaseModel):
 # -------------------------
 @app.post("/start_simulation")
 def start_simulation(req: SimulationRequest):
+    
     print(f"\n{'='*60}")
     print(f"🎬 STARTING NEW SIMULATION")
     print(f"{'='*60}")
@@ -511,7 +567,33 @@ def start_simulation(req: SimulationRequest):
     selected_personas = random.sample(PERSONAS, req.num_agents)
     agents = [Agent(f"Agent {i+1}", persona) for i, persona in enumerate(selected_personas)]
     
-    sim_id = str(len(SIMULATIONS) + 1)
+    # -------------------------
+    # 💾 CREATE DISCUSSION IN DB
+    # -------------------------
+    db = SessionLocal()
+    try:
+        discussion = Discussion(
+            user_id=1,  # 🔥 Replace with actual logged-in user ID
+            topic=req.topic,
+            total_rounds=req.rounds,
+            human_participant=req.human_participant
+        )
+        db.add(discussion)
+        db.commit()
+        db.refresh(discussion)
+
+        sim_id = str(discussion.id)
+
+    except Exception as e:
+        print("❌ DB ERROR:", e)
+        db.rollback()
+        return {"error": "Database error while creating discussion"}
+    finally:
+        db.close()
+
+    # -------------------------
+    # KEEP YOUR EXISTING MEMORY STRUCTURE
+    # -------------------------
     SIMULATIONS[sim_id] = {
         "topic": req.topic,
         "agents": agents,
@@ -530,6 +612,7 @@ def start_simulation(req: SimulationRequest):
     
     agent_list = [{"name": agent.name, "persona": agent.persona} for agent in agents]
     return {"simulation_id": sim_id, "agents": agent_list}
+
 
 @app.post("/submit_human_input/{sim_id}")
 async def submit_human_input(sim_id: str, audio: Optional[UploadFile] = File(None), text: Optional[str] = None):
@@ -566,15 +649,89 @@ async def submit_human_input(sim_id: str, audio: Optional[UploadFile] = File(Non
     print(f"\n💬 HUMAN SAID: \"{human_text}\"")
     print(f"{'='*60}\n")
     
-    # Add human utterance to discussion
+    # Add human utterance to discussion (UNCHANGED)
     sim["utterances"].append({
         "agent": "You",
         "text": human_text,
         "audio": None
     })
     sim["awaiting_human"] = False
+
+    # --------------------------------------------------
+    # 🧠 GENERATE FEEDBACK USING GEMINI
+    # --------------------------------------------------
+    feedback_prompt = f"""
+You are an English communication evaluator.
+
+Topic: {sim['topic']}
+
+Student Response:
+"{human_text}"
+
+Evaluate from 1-10:
+- Grammar
+- Clarity
+- Relevance
+- Politeness
+
+Return strictly in JSON:
+
+{{
+  "grammar_score": int,
+  "clarity_score": int,
+  "relevance_score": int,
+  "politeness_score": int,
+  "feedback": "Constructive feedback (80-120 words)"
+}}
+
+Do NOT add extra text.
+"""
+
+    feedback_data = None
+    response_text = safe_generate(feedback_prompt)
+
+    if response_text:
+        try:
+            cleaned = response_text.replace("```json", "").replace("```", "").strip()
+            feedback_data = json.loads(cleaned)
+        except Exception as e:
+            print("⚠️ Failed to parse Gemini JSON:", e)
+
+    # --------------------------------------------------
+    # 💾 SAVE RESPONSE + SCORES IN DATABASE
+    # --------------------------------------------------
+    db = SessionLocal()
+    try:
+        discussion = db.query(Discussion).filter(
+            Discussion.id == int(sim_id)
+        ).first()
+
+        if discussion and feedback_data:
+            human_response = HumanResponse(
+                discussion_id=discussion.id,
+                round_number=sim["current_round"] + 1,
+                text=human_text,
+                grammar_score=feedback_data.get("grammar_score"),
+                clarity_score=feedback_data.get("clarity_score"),
+                relevance_score=feedback_data.get("relevance_score"),
+                politeness_score=feedback_data.get("politeness_score"),
+                feedback=feedback_data.get("feedback")
+            )
+
+            db.add(human_response)
+            db.commit()
+
+            print("\n📊 HUMAN FEEDBACK GENERATED:")
+            print(feedback_data)
+
+    except Exception as e:
+        print("❌ DB ERROR:", e)
+        db.rollback()
+    finally:
+        db.close()
     
     return {"success": True, "transcribed_text": human_text}
+
 
 @app.post("/next_round/{sim_id}")
 def next_round(sim_id: str):
@@ -584,8 +741,43 @@ def next_round(sim_id: str):
     sim = SIMULATIONS[sim_id]
     
     if sim["current_round"] >= sim["total_rounds"]:
+
+        db = SessionLocal()
+
+        try:
+            responses = db.query(HumanResponse).filter(
+                HumanResponse.discussion_id == int(sim_id)
+            ).all()
+
+            if responses:
+                combined_text = "\n".join([r.text for r in responses])
+
+                final_prompt = f"""
+    You are a communication coach.
+
+    Here are all responses from a student in a group discussion:
+
+    {combined_text}
+
+    Provide:
+    1. Overall performance summary
+    2. Strengths
+    3. Areas for improvement
+    4. Final rating out of 10
+
+    Keep it constructive.
+    """
+
+                final_feedback = safe_generate(final_prompt)
+
+                print("\n🎓 FINAL DISCUSSION FEEDBACK:")
+                print(final_feedback)
+
+        finally:
+            db.close()
+
         return {"message": "Simulation completed.", "utterances": sim["utterances"]}
-    
+        
     utterances = sim["utterances"]
     agents = sim["agents"]
     topic = sim["topic"]
@@ -671,8 +863,10 @@ def get_status(sim_id: str):
         "awaiting_human": sim["awaiting_human"],
         "utterances_count": len(sim["utterances"]),
         "whisper_loaded": whisper_model is not None,
-        "vosk_loaded": vosk_model is not None,
-        "ffmpeg_available": ffmpeg_available
+        "ffmpeg_available": ffmpeg_available,
+
+        # Optional: derived flag (recommended)
+        "voice_available": whisper_model is not None and ffmpeg_available
     }
 
 @app.get("/health")
@@ -695,3 +889,110 @@ def health_check():
         "ffmpeg_available": ffmpeg_available,
         "vosk_model_path": VOSK_MODEL_PATH if os.path.exists(VOSK_MODEL_PATH) else "Not found"
     }
+
+
+@app.post("/end_discussion/{sim_id}")
+def end_discussion(sim_id: str):
+    if sim_id not in SIMULATIONS:
+        return {"error": "Simulation ID not found."}
+
+    sim = SIMULATIONS[sim_id]
+    utterances = sim["utterances"]
+    topic = sim["topic"]
+
+    # 🔥 Build full discussion transcript
+    transcript = ""
+    for u in utterances:
+        transcript += f"{u['agent']}: {u['text']}\n"
+
+    # Extract only human responses
+    human_texts = [
+        u["text"] for u in utterances if u["agent"] == "You"
+    ]
+
+    if not human_texts:
+        return {"error": "No human participation found."}
+
+    full_human_text = "\n".join(human_texts)
+
+    # 🔥 Enhanced Evaluation Prompt
+    evaluation_prompt = f"""
+You are an expert Group Discussion evaluator.
+
+Topic: {topic}
+
+Full Discussion Transcript:
+{transcript}
+
+Human participant name: You
+
+Evaluate the human participant on:
+
+1. Grammar (0-10)
+2. Clarity (0-10)
+3. Relevance to topic (0-10)
+4. Politeness (0-10)
+5. Team Collaboration (0-10)
+
+For Team Collaboration consider:
+- Did the user acknowledge others?
+- Did the user build on AI agents' ideas?
+- Did the user respectfully agree/disagree?
+- Did the user help move discussion forward?
+
+Also provide:
+- Overall score (0-10)
+- 3 strengths
+- 3 areas of improvement
+- Final detailed feedback paragraph (must include collaboration comments)
+
+Return strictly in JSON format like:
+
+{{
+  "grammar": 0,
+  "clarity": 0,
+  "relevance": 0,
+  "politeness": 0,
+  "team_collaboration": 0,
+  "overall": 0,
+  "strengths": [],
+  "improvements": [],
+  "final_feedback": ""
+}}
+"""
+
+    print("\n==============================")
+    print("📊 GENERATING DISCUSSION FEEDBACK")
+    print("==============================")
+
+    result_text = safe_generate(evaluation_prompt)
+
+    try:
+        result_json = json.loads(result_text)
+    except:
+        print("⚠️ Could not parse JSON")
+        print(result_text)
+        return {"error": "Evaluation parsing failed"}
+
+    print("\n📈 HUMAN PERFORMANCE METRICS")
+    print("--------------------------------")
+    print(f"Grammar: {result_json['grammar']}/10")
+    print(f"Clarity: {result_json['clarity']}/10")
+    print(f"Relevance: {result_json['relevance']}/10")
+    print(f"Politeness: {result_json['politeness']}/10")
+    print(f"Team Collaboration: {result_json['team_collaboration']}/10")
+    print(f"Overall: {result_json['overall']}/10")
+
+    print("\n💪 Strengths:")
+    for s in result_json["strengths"]:
+        print(f"- {s}")
+
+    print("\n⚠️ Areas to Improve:")
+    for i in result_json["improvements"]:
+        print(f"- {i}")
+
+    print("\n📝 Final Feedback:")
+    print(result_json["final_feedback"])
+    print("================================\n")
+
+    return result_json

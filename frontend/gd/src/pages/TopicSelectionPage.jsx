@@ -9,7 +9,7 @@ function TopicDiscussion() {
 
   const startDiscussion = async () => {
     if (!topic.trim()) {
-      alert("Enter a topic");
+      alert("Please enter a topic to begin.");
       return;
     }
 
@@ -26,7 +26,6 @@ function TopicDiscussion() {
       });
 
       const data = await res.json();
-
       const now = new Date();
       const record = {
         id: data.simulation_id || Date.now(),
@@ -37,9 +36,7 @@ function TopicDiscussion() {
         timestamp: now.toISOString(),
       };
 
-      const history = JSON.parse(
-        localStorage.getItem("discussionHistory") || "[]"
-      );
+      const history = JSON.parse(localStorage.getItem("discussionHistory") || "[]");
       history.unshift(record);
       localStorage.setItem("discussionHistory", JSON.stringify(history));
 
@@ -53,100 +50,108 @@ function TopicDiscussion() {
 
     } catch (err) {
       console.error("❌ Error:", err);
-      alert("Backend not reachable");
+      alert("The discussion server is not reachable. Please try again later.");
     }
-  };
-
-  const handleLogout = () => {
-    sessionStorage.clear();
-    navigate("/login");
   };
 
   return (
     <div style={styles.page}>
-      {/* ONLY Top Navbar - No second header */}
-      
-
       <div style={styles.container}>
-        {/* SIDEBAR */}
+        {/* SIDEBAR - Matching the Home Layout */}
         <div style={styles.sidebar}>
+          
+
           <button 
             style={styles.btn}
             onClick={() => navigate("/home")}
           >
             <span style={styles.btnIcon}>🏠</span>
-            Home
+            Dashboard
           </button>
 
           <button style={styles.activeBtn}>
-            <span style={styles.btnIcon}>💬</span>
-            New Discussion
+            <span style={styles.btnIcon}>➕</span>
+            New Session
           </button>
+          
+          <div style={styles.sidebarDivider} />
+ 
         </div>
 
         {/* CONTENT */}
-        <div style={styles.content}>
-          <div style={styles.formContainer}>
-            <div style={styles.header}>
-              <h1 style={styles.title}>Start a New Discussion</h1>
-              <p style={styles.subtitle}>Configure your group discussion session</p>
-            </div>
+        <div style={styles.contentWrapper}>
+          <div style={styles.content}>
+            <div style={styles.formContainer}>
+              <header style={styles.header}>
+                <h1 style={styles.title}>New Discussion</h1>
+                <p style={styles.subtitle}>Set the stage for your AI-powered conversation</p>
+              </header>
 
-            <div style={styles.card}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>
-                  <span style={styles.labelIcon}>📝</span>
-                  Discussion Topic
-                </label>
-                <textarea
-                  placeholder="Enter your discussion topic here... (e.g., Impact of AI on society)"
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  rows={5}
-                  style={styles.textarea}
-                />
-              </div>
-
-              <div style={styles.formRow}>
+              <div style={styles.card}>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>
-                    <span style={styles.labelIcon}>⏱️</span>
-                    Duration
+                    <span style={styles.labelIcon}>📝</span>
+                    What do you want to talk about?
                   </label>
-                  <select
-                    value={duration}
-                    onChange={(e) => setDuration(Number(e.target.value))}
-                    style={styles.select}
-                  >
-                    <option value={10}>10 minutes</option>
-                    <option value={15}>15 minutes</option>
-                    <option value={20}>20 minutes</option>
-                  </select>
+                  <textarea
+                    placeholder="Describe your topic in detail... (e.g. The ethics of space exploration or future of remote work)"
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    rows={4}
+                    style={styles.textarea}
+                  />
                 </div>
 
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>
-                    <span style={styles.labelIcon}>👥</span>
-                    Participants
-                  </label>
-                  <div style={styles.infoBox}>
-                    4 AI Agents + You
+                <div style={styles.formRow}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>
+                      <span style={styles.labelIcon}>⏱️</span>
+                      Session Duration
+                    </label>
+                    <div style={styles.selectWrapper}>
+                      <select
+                        value={duration}
+                        onChange={(e) => setDuration(Number(e.target.value))}
+                        style={styles.select}
+                      >
+                        <option value={10}>10 minutes</option>
+                        <option value={15}>15 minutes</option>
+                        <option value={20}>20 minutes</option>
+                        <option value={30}>30 minutes</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>
+                      <span style={styles.labelIcon}>👥</span>
+                      Group Setup
+                    </label>
+                    <div style={styles.infoBox}>
+                      <span style={styles.blueDot}></span>
+                      4 AI Agents + You
+                    </div>
                   </div>
                 </div>
+
+                <div style={styles.buttonGroup}>
+                  <button onClick={startDiscussion} style={styles.primaryBtn}>
+                    Launch Session
+                  </button>
+                  <button
+                    onClick={() => navigate("/home")}
+                    style={styles.secondaryBtn}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
 
-              <div style={styles.buttonGroup}>
-                <button onClick={startDiscussion} style={styles.primaryBtn}>
-                  <span style={styles.btnIcon}>▶️</span>
-                  Start Discussion
-                </button>
-                <button
-                  onClick={() => navigate("/home")}
-                  style={styles.secondaryBtn}
-                >
-                  <span style={styles.btnIcon}>🏠</span>
-                  Back to Home
-                </button>
+              <div style={styles.tipBox}>
+                <span style={{fontSize: '20px'}}>💡</span>
+                <p style={styles.tipText}>
+                  <strong>Pro Tip:</strong> Be specific! Instead of "Science," try "The impact of quantum computing on modern cybersecurity."
+                </p>
               </div>
             </div>
           </div>
@@ -159,230 +164,229 @@ function TopicDiscussion() {
 const styles = {
   page: { 
     minHeight: "100vh", 
-    background: "#f5f7fa",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-    display: "flex",
-    flexDirection: "column",
-    margin: 0,
-    padding: 0
-  },
-  navbar: {
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    padding: "16px 30px",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    boxShadow: "0 2px 10px rgba(0,0,0,0.1)"
-  },
-  navbarLeft: {
-    display: "flex",
-    alignItems: "center"
-  },
-  logoText: {
-    fontSize: "24px",
-    fontWeight: "700",
-    color: "#fff"
-  },
-  navbarRight: {
-    display: "flex",
-    alignItems: "center",
-    gap: "20px"
-  },
-  userInfo: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    background: "rgba(255,255,255,0.2)",
-    padding: "8px 16px",
-    borderRadius: "20px",
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: "15px"
-  },
-  navLogoutBtn: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    padding: "10px 20px",
-    background: "rgba(231, 76, 60, 0.9)",
-    color: "#fff",
-    border: "none",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "14px",
-    fontWeight: "600",
-    transition: "all 0.3s ease"
+    background: "#f8fafc",
+    fontFamily: "'Inter', sans-serif",
+    color: "#1e293b",
   },
   container: { 
     display: "flex",
-    flex: 1
+    minHeight: "100vh",
   },
   sidebar: {
-    width: "240px",
-    background: "#fff",
-    padding: "20px 15px",
+    width: "280px",
+    background: "#ffffff",
+    padding: "32px 24px",
     display: "flex",
     flexDirection: "column",
-    gap: "10px",
-    borderRight: "1px solid #e0e0e0"
+    borderRight: "1px solid #e2e8f0",
+    position: "fixed",
+    height: "100vh",
+  },
+  sidebarBrand: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    marginBottom: "40px",
+    paddingLeft: "10px",
+  },
+  brandIcon: {
+    background: "#2563eb",
+    color: "#fff",
+    width: "32px",
+    height: "32px",
+    borderRadius: "8px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: "bold",
+  },
+  brandName: {
+    fontSize: "20px",
+    fontWeight: "700",
+    color: "#0f172a",
+    letterSpacing: "-0.5px",
+  },
+  sidebarLabel: {
+    fontSize: "12px",
+    fontWeight: "600",
+    color: "#94a3b8",
+    textTransform: "uppercase",
+    margin: "24px 0 8px 12px",
+    letterSpacing: "0.05em",
+  },
+  sidebarDivider: {
+    height: "1px",
+    background: "#f1f5f9",
+    margin: "20px 0",
   },
   btn: {
-    padding: "14px 18px",
+    padding: "12px 16px",
     border: "none",
-    background: "#f5f7fa",
-    color: "#2c3e50",
+    background: "transparent",
+    color: "#64748b",
     cursor: "pointer",
-    borderRadius: "10px",
-    fontSize: "15px",
+    borderRadius: "12px",
+    fontSize: "14px",
     fontWeight: "500",
     textAlign: "left",
-    transition: "all 0.3s ease",
     display: "flex",
     alignItems: "center",
-    gap: "10px"
+    gap: "12px",
+    transition: "0.2s",
   },
   activeBtn: {
-    padding: "14px 18px",
+    padding: "12px 16px",
     border: "none",
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    color: "#fff",
-    borderRadius: "10px",
-    fontSize: "15px",
+    background: "#eff6ff",
+    color: "#2563eb",
+    borderRadius: "12px",
+    fontSize: "14px",
     fontWeight: "600",
-    boxShadow: "0 4px 15px rgba(102, 126, 234, 0.4)",
     textAlign: "left",
     display: "flex",
     alignItems: "center",
-    gap: "10px"
+    gap: "12px",
   },
-  btnIcon: {
-    fontSize: "18px"
+  contentWrapper: {
+    flex: 1,
+    marginLeft: "280px",
   },
   content: { 
-    flex: 1, 
-    padding: "40px 50px",
-    overflowY: "auto",
+    padding: "60px 20px",
     display: "flex",
     justifyContent: "center",
-    alignItems: "flex-start"
   },
   formContainer: {
-    maxWidth: "700px",
+    maxWidth: "640px",
     width: "100%",
-    paddingTop: "20px"
   },
   header: {
-    marginBottom: "30px",
-    textAlign: "center"
+    marginBottom: "32px",
+    textAlign: "left"
   },
   title: {
-    fontSize: "32px",
-    fontWeight: "700",
-    color: "#2c3e50",
-    marginBottom: "8px"
+    fontSize: "30px",
+    fontWeight: "800",
+    color: "#0f172a",
+    marginBottom: "8px",
+    letterSpacing: "-0.02em"
   },
   subtitle: { 
-    color: "#7f8c8d", 
+    color: "#64748b", 
     fontSize: "16px",
-    fontWeight: "400"
   },
   card: {
     background: "#fff",
     padding: "40px",
-    borderRadius: "20px",
-    boxShadow: "0 4px 30px rgba(0,0,0,0.1)",
-    marginBottom: "30px"
+    borderRadius: "24px",
+    border: "1px solid #e2e8f0",
+    boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.05)",
   },
   formGroup: {
-    marginBottom: "25px"
+    marginBottom: "24px"
   },
   label: {
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    fontSize: "15px",
+    fontSize: "14px",
     fontWeight: "600",
-    color: "#2c3e50",
-    marginBottom: "10px"
-  },
-  labelIcon: {
-    fontSize: "18px"
+    color: "#334155",
+    marginBottom: "12px"
   },
   textarea: {
     width: "100%",
     padding: "16px",
     fontSize: "15px",
-    border: "2px solid #e0e0e0",
+    lineHeight: "1.5",
+    border: "1px solid #e2e8f0",
     borderRadius: "12px",
     fontFamily: "inherit",
-    resize: "vertical",
-    transition: "all 0.3s ease",
+    resize: "none",
+    transition: "border-color 0.2s",
     outline: "none",
-    boxSizing: "border-box"
-  },
-  select: {
-    width: "100%",
-    padding: "16px",
-    fontSize: "15px",
-    border: "2px solid #e0e0e0",
-    borderRadius: "12px",
-    fontFamily: "inherit",
-    background: "#fff",
-    cursor: "pointer",
-    transition: "all 0.3s ease",
-    outline: "none"
+    boxSizing: "border-box",
+    background: "#f8fafc"
   },
   formRow: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
-    gap: "20px"
+    gap: "24px",
+    marginTop: "10px"
+  },
+  select: {
+    width: "100%",
+    padding: "14px 16px",
+    fontSize: "15px",
+    border: "1px solid #e2e8f0",
+    borderRadius: "12px",
+    fontFamily: "inherit",
+    background: "#f8fafc",
+    cursor: "pointer",
+    outline: "none",
+    appearance: "none"
   },
   infoBox: {
-    padding: "16px",
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    color: "#fff",
+    padding: "14px 16px",
+    background: "#f1f5f9",
+    color: "#475569",
     borderRadius: "12px",
     fontWeight: "600",
-    textAlign: "center",
-    fontSize: "15px"
+    fontSize: "14px",
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    border: "1px solid #e2e8f0"
+  },
+  blueDot: {
+    width: "8px",
+    height: "8px",
+    background: "#2563eb",
+    borderRadius: "50%"
   },
   buttonGroup: {
     display: "flex",
-    gap: "15px",
-    marginTop: "30px"
+    flexDirection: "column",
+    gap: "12px",
+    marginTop: "32px"
   },
   primaryBtn: {
-    flex: 1,
-    padding: "16px 24px",
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    padding: "16px",
+    background: "#2563eb",
     color: "#fff",
     border: "none",
     borderRadius: "12px",
     fontSize: "16px",
     fontWeight: "600",
     cursor: "pointer",
-    boxShadow: "0 4px 20px rgba(102, 126, 234, 0.4)",
-    transition: "all 0.3s ease",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px"
+    boxShadow: "0 4px 12px rgba(37, 99, 235, 0.2)",
+    transition: "background 0.2s"
   },
   secondaryBtn: {
-    flex: 1,
-    padding: "16px 24px",
-    background: "#fff",
-    color: "#667eea",
-    border: "2px solid #667eea",
+    padding: "14px",
+    background: "transparent",
+    color: "#64748b",
+    border: "none",
     borderRadius: "12px",
-    fontSize: "16px",
-    fontWeight: "600",
+    fontSize: "15px",
+    fontWeight: "500",
     cursor: "pointer",
-    transition: "all 0.3s ease",
+  },
+  tipBox: {
+    marginTop: "32px",
+    padding: "20px",
+    background: "#fffbeb",
+    border: "1px solid #fef3c7",
+    borderRadius: "16px",
     display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px"
+    gap: "16px",
+    alignItems: "flex-start"
+  },
+  tipText: {
+    margin: 0,
+    fontSize: "14px",
+    color: "#92400e",
+    lineHeight: "1.5"
   }
 };
 

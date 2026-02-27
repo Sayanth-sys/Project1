@@ -70,11 +70,11 @@ function DiscussionPage() {
       setSystemStatus(data);
       console.log("🏥 System health:", data);
       
-      if (!data.vosk_model_loaded) {
-        console.warn("⚠️ Vosk model not loaded - voice input will not work");
+      if (!data.whisper_loaded) {
+        console.warn("⚠️ Whisper not loaded - voice input unavailable");
       }
       if (!data.ffmpeg_available) {
-        console.warn("⚠️ FFmpeg not available - voice input will not work");
+        console.warn("⚠️ FFmpeg not available - voice input unavailable");
       }
     } catch (err) {
       console.error("❌ Could not check system health:", err);
@@ -121,14 +121,18 @@ function DiscussionPage() {
   };
 
   const startRecording = async () => {
-    if (systemStatus && (!systemStatus.vosk_model_loaded || !systemStatus.ffmpeg_available)) {
-      alert("Voice recording is not available. Missing:\n" + 
-            (!systemStatus.vosk_model_loaded ? "- Vosk speech model\n" : "") +
-            (!systemStatus.ffmpeg_available ? "- FFmpeg\n" : "") +
-            "\nPlease use text input instead.");
+    if (
+      systemStatus &&
+      (!systemStatus.whisper_loaded || !systemStatus.ffmpeg_available)
+    ) {
+      alert(
+        "Voice recording is not available. Missing:\n" +
+        (!systemStatus.whisper_loaded ? "- Whisper model\n" : "") +
+        (!systemStatus.ffmpeg_available ? "- FFmpeg\n" : "") +
+        "\nPlease use text input instead."
+      );
       return;
     }
-
     try {
       console.log("🎤 Requesting microphone access...");
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -425,7 +429,7 @@ function DiscussionPage() {
       fontFamily: 'system-ui, -apple-system, sans-serif',
       background: '#f5f5f5'
     }}>
-      {systemStatus && (!systemStatus.vosk_model_loaded || !systemStatus.ffmpeg_available) && (
+      {systemStatus && (!systemStatus.whisper_loaded || !systemStatus.ffmpeg_available) && (
         <div style={{
           position: 'fixed',
           top: 0,
@@ -439,9 +443,11 @@ function DiscussionPage() {
           zIndex: 1000,
           borderBottom: '2px solid #ffc107'
         }}>
-          ⚠️ Voice input unavailable: {!systemStatus.vosk_model_loaded && 'Vosk model missing'} 
-          {!systemStatus.vosk_model_loaded && !systemStatus.ffmpeg_available && ' & '}
-          {!systemStatus.ffmpeg_available && 'FFmpeg not found'} - Use text input instead
+          ⚠️ Voice input unavailable:
+          {!systemStatus.whisper_loaded && ' Whisper model missing'}
+          {!systemStatus.whisper_loaded && !systemStatus.ffmpeg_available && ' &'}
+          {!systemStatus.ffmpeg_available && ' FFmpeg not found'}
+          - Use text input instead
         </div>
       )}
 
@@ -451,8 +457,7 @@ function DiscussionPage() {
         background: 'white',
         borderRight: '1px solid #e0e0e0',
         overflowY: 'auto',
-        marginTop: systemStatus && (!systemStatus.vosk_model_loaded || !systemStatus.ffmpeg_available) ? '42px' : '0'
-      }}>
+        marginTop: systemStatus && (!systemStatus.whisper_loaded || !systemStatus.ffmpeg_available) ? '42px' : '0'      }}>
         <div style={{
           padding: '20px',
           borderBottom: '2px solid #e0e0e0',
