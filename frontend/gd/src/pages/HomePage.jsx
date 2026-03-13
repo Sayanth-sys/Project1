@@ -114,7 +114,12 @@ function HomePage() {
                       <div style={styles.durationTag}>
                         <span style={{marginRight: '4px'}}>🕒</span> {d.duration} mins
                       </div>
-                      <button style={styles.cardActionBtn}>Details →</button>
+                      <button 
+                        style={styles.cardActionBtn}
+                        onClick={() => navigate(`/feedback/${d.id}`)}
+                      >
+                        Details →
+                      </button>
                     </div>
                   </div>
                 ))}

@@ -44,6 +44,7 @@ function TopicDiscussion() {
         state: {
           topic: topic,
           simulationId: data.simulation_id,
+          agents: data.agents || [],
           duration,
         },
       });

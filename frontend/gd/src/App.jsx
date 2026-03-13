@@ -7,6 +7,7 @@ import SignupPage from "./pages/SignupPage";
 import HomePage from "./pages/HomePage";
 import TopicSelectionPage from "./pages/TopicSelectionPage";
 import DiscussionPage from "./pages/DiscussionPage";
+import FeedbackPage from "./pages/FeedbackPage";
 
 import "./App.css";
 
@@ -74,6 +75,14 @@ function App() {
             path="/discussion"
             element={
               user ? <DiscussionPage /> : <Navigate to="/login" replace />
+            }
+          />
+
+          {/* FEEDBACK PAGE */}
+          <Route
+            path="/feedback/:id"
+            element={
+              user ? <FeedbackPage /> : <Navigate to="/login" replace />
             }
           />
 

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, Text, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, Text, ForeignKey, Boolean
 from database import Base
 import datetime
 from sqlalchemy.orm import relationship
@@ -32,6 +32,18 @@ class Discussion(Base):
     human_participant = Column(Boolean, default=True)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # Final evaluation from end_discussion
+    grammar_score = Column(Integer, nullable=True)
+    clarity_score = Column(Integer, nullable=True)
+    relevance_score = Column(Integer, nullable=True)
+    politeness_score = Column(Integer, nullable=True)
+    team_collaboration_score = Column(Integer, nullable=True)
+    overall_score = Column(Integer, nullable=True)
+    human_percentage = Column(Float, nullable=True)
+    strengths = Column(Text, nullable=True)  # JSON string
+    improvements = Column(Text, nullable=True)  # JSON string
+    final_feedback = Column(Text, nullable=True)
 
     # Relationship
     responses = relationship("HumanResponse", back_populates="discussion")

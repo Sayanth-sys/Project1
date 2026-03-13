@@ -5,8 +5,8 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
 from google import genai
+# import google.generativeai as genai
 from typing import List, Dict, Optional
 import json
 from gtts import gTTS
@@ -76,8 +76,14 @@ except Exception as e:
 # -------------------------
 # 🎤 Vosk Model Setup (Offline Speech Recognition - Fallback)
 # -------------------------
-VOSK_MODEL_PATH = "vosk-model-small-en-us-0.15"
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+VOSK_MODEL_PATH = os.path.join(BASE_DIR, "vosk-model-small-en-us-0.15")
+
 print("[INFO] Loading Vosk speech recognition model...")
+print("[DEBUG] Looking for model at:", VOSK_MODEL_PATH)
+print("[DEBUG] Exists:", os.path.exists(VOSK_MODEL_PATH))
+
 if os.path.exists(VOSK_MODEL_PATH):
     try:
         vosk_model = Model(VOSK_MODEL_PATH)
@@ -88,16 +94,9 @@ if os.path.exists(VOSK_MODEL_PATH):
 else:
     vosk_model = None
     print(f"[WARNING] ⚠️ Vosk model not found at: {VOSK_MODEL_PATH}")
-    print("[WARNING] 💡 Download from: https://alphacephei.com/vosk/models")
-    print("[WARNING] 💡 Extract to project root and rename to 'vosk-model-small-en-us-0.15'")
 
 # -------------------------
-# 🧠 Embedding Model
-# -------------------------
-embedder = SentenceTransformer("all-MiniLM-L6-v2")
-
-# -------------------------
-# 🧍 Personas
+#  Personas
 # -------------------------
 PERSONAS = [
     "logical and fact-driven",
@@ -543,7 +542,7 @@ SIMULATIONS = {}
 
 class SimulationRequest(BaseModel):
     topic: str
-    num_agents: int = 1
+    num_agents: int = 4
     rounds: int = 3
     human_participant: bool = True
 
@@ -653,7 +652,8 @@ async def submit_human_input(sim_id: str, audio: Optional[UploadFile] = File(Non
     sim["utterances"].append({
         "agent": "You",
         "text": human_text,
-        "audio": None
+        "audio": None,
+        "timestamp": time.time()
     })
     sim["awaiting_human"] = False
 
@@ -837,7 +837,12 @@ def next_round(sim_id: str):
                 text = agent.generate_response(prompt)
                 audio_base64 = text_to_audio_base64(text, agent.name)
                 
-                data = {"agent": agent.name, "text": text, "audio": audio_base64}
+                data = {
+                    "agent": agent.name,
+                    "text": text,
+                    "audio": audio_base64,
+                    "timestamp": time.time()
+                }
                 utterances.append(data)
                 
                 print(f"🗣️ {agent.name}: \"{text}\"")
@@ -898,6 +903,45 @@ def end_discussion(sim_id: str):
 
     sim = SIMULATIONS[sim_id]
     utterances = sim["utterances"]
+    # -------------------------
+    # 📊 Participation Analysis
+    # -------------------------
+
+    total_time = 0
+    human_time = 0
+
+    # Sort by timestamp (safe guard)
+    utterances = sorted(
+        [u for u in utterances if "timestamp" in u],
+        key=lambda x: x["timestamp"]
+    )
+    discussion_end_time = time.time()
+    for i in range(len(utterances) - 1):
+        current = utterances[i]
+        next_utt = utterances[i + 1]
+
+        duration = next_utt["timestamp"] - current["timestamp"]
+
+        total_time += duration
+
+        if current["agent"] == "You":
+            human_time += duration
+    # 🟢 Handle last speaker duration
+    if utterances:
+        last_utt = utterances[-1]
+        last_duration = discussion_end_time - last_utt["timestamp"]
+
+        total_time += last_duration
+
+        if last_utt["agent"] == "You":
+            human_time += last_duration
+
+    if total_time > 0:
+        human_percentage = round((human_time / total_time) * 100, 2)
+    else:
+        human_percentage = 0
+
+    print(f"\n🗣️ HUMAN SPEAKING SHARE: {human_percentage}%")
     topic = sim["topic"]
 
     # 🔥 Build full discussion transcript
@@ -920,7 +964,7 @@ def end_discussion(sim_id: str):
 You are an expert Group Discussion evaluator.
 
 Topic: {topic}
-
+Human speaking share: {human_percentage}% of total discussion.
 Full Discussion Transcript:
 {transcript}
 
@@ -946,6 +990,11 @@ Also provide:
 - 3 areas of improvement
 - Final detailed feedback paragraph (must include collaboration comments)
 
+Also comment whether participation level was:
+- Too low (<20%)
+- Balanced (20-40%)
+- Dominating (>40%)
+
 Return strictly in JSON format like:
 
 {{
@@ -967,8 +1016,19 @@ Return strictly in JSON format like:
 
     result_text = safe_generate(evaluation_prompt)
 
+    # Strip markdown code fences if present (```json ... ```)
+    cleaned = result_text.strip()
+    if cleaned.startswith("```"):
+        # Remove opening fence (```json or ```)
+        first_newline = cleaned.index("\n")
+        cleaned = cleaned[first_newline + 1:]
+        # Remove closing fence
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+
     try:
-        result_json = json.loads(result_text)
+        result_json = json.loads(cleaned)
+        result_json["human_percentage"] = human_percentage
     except:
         print("⚠️ Could not parse JSON")
         print(result_text)
@@ -982,7 +1042,7 @@ Return strictly in JSON format like:
     print(f"Politeness: {result_json['politeness']}/10")
     print(f"Team Collaboration: {result_json['team_collaboration']}/10")
     print(f"Overall: {result_json['overall']}/10")
-
+    print(f"Percentage of participation: {result_json['human_percentage']}%")
     print("\n💪 Strengths:")
     for s in result_json["strengths"]:
         print(f"- {s}")
@@ -994,5 +1054,26 @@ Return strictly in JSON format like:
     print("\n📝 Final Feedback:")
     print(result_json["final_feedback"])
     print("================================\n")
+
+    # Save final evaluation to database
+    try:
+        db = SessionLocal()
+        discussion = db.query(Discussion).filter(Discussion.id == int(sim_id)).first()
+        if discussion:
+            discussion.grammar_score = result_json.get("grammar")
+            discussion.clarity_score = result_json.get("clarity")
+            discussion.relevance_score = result_json.get("relevance")
+            discussion.politeness_score = result_json.get("politeness")
+            discussion.team_collaboration_score = result_json.get("team_collaboration")
+            discussion.overall_score = result_json.get("overall")
+            discussion.human_percentage = result_json.get("human_percentage")
+            discussion.strengths = json.dumps(result_json.get("strengths", []))
+            discussion.improvements = json.dumps(result_json.get("improvements", []))
+            discussion.final_feedback = result_json.get("final_feedback")
+            db.commit()
+            print("✅ Final evaluation saved to database")
+        db.close()
+    except Exception as e:
+        print(f"⚠️ Could not save evaluation to DB: {e}")
 
     return result_json

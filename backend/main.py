@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import models, schemas, crud, database, auth
 import traceback
+import json
 
 # Create DB tables
 try:
@@ -114,6 +115,61 @@ def login(data: schemas.LoginData, db: Session = Depends(get_db)):
 def read_me(current_user: dict = Depends(auth.get_current_user)):
     """Get current user info (protected route)"""
     return current_user
+
+@app.get("/discussion/{discussion_id}/feedback")
+def get_discussion_feedback(discussion_id: int, db: Session = Depends(get_db)):
+    """Get per-round feedback for a discussion"""
+    try:
+        discussion = db.query(models.Discussion).filter(models.Discussion.id == discussion_id).first()
+        if not discussion:
+            raise HTTPException(status_code=404, detail="Discussion not found")
+
+        responses = (
+            db.query(models.HumanResponse)
+            .filter(models.HumanResponse.discussion_id == discussion_id)
+            .order_by(models.HumanResponse.round_number)
+            .all()
+        )
+
+        return {
+            "discussion": {
+                "id": discussion.id,
+                "topic": discussion.topic,
+                "total_rounds": discussion.total_rounds,
+                "created_at": discussion.created_at.isoformat() if discussion.created_at else None,
+            },
+            "evaluation": {
+                "grammar": discussion.grammar_score,
+                "clarity": discussion.clarity_score,
+                "relevance": discussion.relevance_score,
+                "politeness": discussion.politeness_score,
+                "team_collaboration": discussion.team_collaboration_score,
+                "overall": discussion.overall_score,
+                "human_percentage": discussion.human_percentage,
+                "strengths": json.loads(discussion.strengths) if discussion.strengths else [],
+                "improvements": json.loads(discussion.improvements) if discussion.improvements else [],
+                "final_feedback": discussion.final_feedback,
+            } if discussion.overall_score is not None else None,
+            "rounds": [
+                {
+                    "round_number": r.round_number,
+                    "text": r.text,
+                    "grammar_score": r.grammar_score,
+                    "clarity_score": r.clarity_score,
+                    "relevance_score": r.relevance_score,
+                    "politeness_score": r.politeness_score,
+                    "feedback": r.feedback,
+                }
+                for r in responses
+            ],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching feedback: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/health")
 def health_check():
