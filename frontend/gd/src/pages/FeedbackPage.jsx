@@ -11,26 +11,34 @@ function FeedbackPage() {
   useEffect(() => {
     // 1. Load final evaluation from localStorage
     const feedbackStore = JSON.parse(localStorage.getItem("discussionFeedback") || "{}");
-    if (feedbackStore[id]) {
-      setFeedback(feedbackStore[id]);
-    }
-
-    // 2. Fetch per-round data AND evaluation from backend
-    fetch(`http://127.0.0.1:8000/discussion/${id}/feedback`)
+    
+    // ✅ FIX: Enhanced merging logic to guarantee the data displays properly
+    fetch(`http://127.0.0.1:8001/discussion/${id}/feedback`)
       .then((res) => res.json())
       .then((data) => {
         if (data && !data.detail) {
           setRoundData(data);
-          // If localStorage has no feedback but DB has evaluation, use it
-          if (!feedbackStore[id] && data.evaluation) {
-            setFeedback({
-              ...data.evaluation,
-              topic: data.discussion?.topic || "Discussion",
-            });
-          }
+          
+          const localData = feedbackStore[id] || {};
+          const dbData = data.evaluation || {};
+          
+          // Merge local and DB data ensuring NO null values wipe out valid ones
+          setFeedback({
+            ...dbData,
+            ...localData,
+            overall: localData.overall ?? dbData.overall,
+            human_percentage: localData.human_percentage ?? dbData.human_percentage,
+            topic: localData.topic || data.discussion?.topic || "Discussion"
+          });
         }
       })
-      .catch((err) => console.error("Could not fetch round data:", err))
+      .catch((err) => {
+        console.error("Could not fetch round data:", err);
+        // Fallback to strictly local storage if backend fetch completely fails
+        if (feedbackStore[id]) {
+          setFeedback(feedbackStore[id]);
+        }
+      })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -39,7 +47,8 @@ function FeedbackPage() {
 
   // Score bar component
   const ScoreBar = ({ label, score, max = 10, color = "#2563eb" }) => {
-    const pct = (score / max) * 100;
+    // Safe check to prevent NaN width breaking the UI style
+    const pct = score ? (score / max) * 100 : 0;
     return (
       <div style={styles.scoreRow}>
         <div style={styles.scoreLabel}>{label}</div>
@@ -52,7 +61,7 @@ function FeedbackPage() {
             }}
           />
         </div>
-        <div style={styles.scoreValue}>{score}/{max}</div>
+        <div style={styles.scoreValue}>{score || 0}/{max}</div>
       </div>
     );
   };
@@ -124,7 +133,7 @@ function FeedbackPage() {
         {feedback && (
           <div style={styles.overallCard}>
             <div style={styles.overallScoreCircle}>
-              <div style={styles.overallScoreNumber}>{feedback.overall}</div>
+              <div style={styles.overallScoreNumber}>{feedback.overall || 0}</div>
               <div style={styles.overallScoreMax}>/10</div>
             </div>
             <div style={styles.overallInfo}>
@@ -151,22 +160,22 @@ function FeedbackPage() {
                 <div
                   style={{
                     ...styles.participationBarFill,
-                    width: `${Math.min(feedback.human_percentage, 100)}%`,
+                    width: `${Math.min(feedback.human_percentage || 0, 100)}%`,
                     background:
-                      feedback.human_percentage < 20
+                      (feedback.human_percentage || 0) < 20
                         ? "#ef4444"
-                        : feedback.human_percentage > 40
+                        : (feedback.human_percentage || 0) > 40
                         ? "#f59e0b"
                         : "#10b981",
                   }}
                 />
               </div>
-              <span style={styles.participationPct}>{feedback.human_percentage}%</span>
+              <span style={styles.participationPct}>{feedback.human_percentage || 0}%</span>
             </div>
             <p style={styles.participationNote}>
-              {feedback.human_percentage < 20
+              {(feedback.human_percentage || 0) < 20
                 ? "⚠️ Too low — try to contribute more actively"
-                : feedback.human_percentage > 40
+                : (feedback.human_percentage || 0) > 40
                 ? "⚠️ Dominating — give others more space to speak"
                 : "✅ Balanced participation — well done!"}
             </p>

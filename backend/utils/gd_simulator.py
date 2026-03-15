@@ -67,7 +67,7 @@ client = genai.Client(api_key=API_KEY)
 # -------------------------
 print("[INFO] 🧠 Loading Whisper model...")
 try:
-    whisper_model = whisper.load_model("base")
+    whisper_model = whisper.load_model("small")
     print("[INFO] ✅ Whisper model loaded successfully")
 except Exception as e:
     whisper_model = None
@@ -591,7 +591,7 @@ def start_simulation(req: SimulationRequest):
         db.close()
 
     # -------------------------
-    # KEEP YOUR EXISTING MEMORY STRUCTURE
+    # SIMULATION STRUCTURE WITH INTERRUPT SUPPORT
     # -------------------------
     SIMULATIONS[sim_id] = {
         "topic": req.topic,
@@ -600,7 +600,11 @@ def start_simulation(req: SimulationRequest):
         "current_round": 0,
         "total_rounds": req.rounds,
         "human_participant": req.human_participant,
-        "awaiting_human": False
+        "awaiting_human": False,
+        # Interrupt system fields
+        "interrupt_reserved": False,
+        "human_interrupt_count": 0,
+        "current_speaker": None
     }
     
     print(f"\n✅ Simulation ID: {sim_id}")
@@ -611,6 +615,38 @@ def start_simulation(req: SimulationRequest):
     
     agent_list = [{"name": agent.name, "persona": agent.persona} for agent in agents]
     return {"simulation_id": sim_id, "agents": agent_list}
+
+
+@app.post("/reserve_interrupt/{sim_id}")
+def reserve_interrupt(sim_id: str):
+    """Allow human to interrupt and reserve the next speaking turn."""
+    print(f"\n{'='*60}")
+    print(f"🔔 INTERRUPT RESERVED")
+    print(f"{'='*60}")
+    
+    if sim_id not in SIMULATIONS:
+        print("❌ ERROR: Simulation ID not found")
+        return {"error": "Simulation ID not found."}
+    
+    sim = SIMULATIONS[sim_id]
+    
+    if sim["interrupt_reserved"]:
+        print("⚠️ Interrupt already reserved")
+        return {"message": "Interrupt already reserved", "success": False}
+    
+    sim["interrupt_reserved"] = True
+    sim["human_interrupt_count"] += 1
+    
+    print(f"✅ Interrupt #{sim['human_interrupt_count']} reserved by human")
+    print(f"Current speaker will finish, then human gets next turn")
+    print(f"{'='*60}\n")
+    
+    return {
+        "success": True,
+        "interrupt_reserved": True,
+        "interrupt_count": sim["human_interrupt_count"],
+        "message": "Next chance reserved"
+    }
 
 
 @app.post("/submit_human_input/{sim_id}")
@@ -648,7 +684,7 @@ async def submit_human_input(sim_id: str, audio: Optional[UploadFile] = File(Non
     print(f"\n💬 HUMAN SAID: \"{human_text}\"")
     print(f"{'='*60}\n")
     
-    # Add human utterance to discussion (UNCHANGED)
+    # Add human utterance to discussion
     sim["utterances"].append({
         "agent": "You",
         "text": human_text,
@@ -733,6 +769,21 @@ Do NOT add extra text.
     return {"success": True, "transcribed_text": human_text}
 
 
+# -------------------------
+# 🧩 Helper: Pre-generate agent response
+# -------------------------
+def generate_agent_response(agent, topic, utterances_snapshot, human_just_spoke):
+    """Pre-generate an agent's response text and audio."""
+    prompt = agent.prepare_prompt(
+        topic,
+        utterances_snapshot,
+        human_just_spoke=human_just_spoke
+    )
+    text = agent.generate_response(prompt)
+    audio = text_to_audio_base64(text, agent.name)
+    return text, audio
+
+
 @app.post("/next_round/{sim_id}")
 def next_round(sim_id: str):
     if sim_id not in SIMULATIONS:
@@ -781,77 +832,135 @@ def next_round(sim_id: str):
     utterances = sim["utterances"]
     agents = sim["agents"]
     topic = sim["topic"]
-    human_participant = sim["human_participant"]
     
-    speaking_order = []
-    if human_participant:
-        all_speakers = agents.copy()
-        human_position = random.randint(0, len(all_speakers))
-        speaking_order = all_speakers[:human_position] + ["HUMAN_TURN"] + all_speakers[human_position:]
-    else:
-        speaking_order = random.sample(agents, len(agents))
+    # ✅ SPEAKING ORDER: FIXED SEQUENTIAL AGENTS ONLY (NO RANDOM, NO HUMAN)
+    speaking_order = agents  # Agents always speak in the same order each round
     
     print(f"\n{'='*60}")
     print(f"🔄 ROUND {sim['current_round'] + 1} STARTING")
     print(f"{'='*60}")
-    print(f"📢 Speaking order: {[a.name if isinstance(a, Agent) else '👤 You (Human)' for a in speaking_order]}")
+    print(f"📢 Speaking order: {[a.name for a in speaking_order]}")
+    print(f"ℹ️ Human can interrupt anytime via button")
     print(f"{'='*60}\n")
     
     def generate():
+        nonlocal utterances
         human_just_spoke = False
-        for i, speaker in enumerate(speaking_order):
-            if speaker == "HUMAN_TURN":
-                print(f"\n🎤 {'='*50}")
-                print(f"  YOUR TURN TO SPEAK!")
-                print(f"  {'='*50}\n")
-                
-                yield f"data: {json.dumps({'type': 'human_turn'})}\n\n"
-                sim["awaiting_human"] = True
-                
-                max_wait = 120
-                waited = 0
-                while sim["awaiting_human"] and waited < max_wait:
-                    time.sleep(1)
-                    waited += 1
-                
-                if waited >= max_wait:
-                    print("⏰ TIMEOUT: Human took too long to respond")
-                    yield f"data: {json.dumps({'type': 'error', 'message': 'Timeout waiting for human input'})}\n\n"
-                    continue
-                
-                human_utterance = sim["utterances"][-1]
-                print(f"✅ Human response submitted: \"{human_utterance['text']}\"")
-                yield f"data: {json.dumps({'type': 'human_response', 'text': human_utterance['text']})}\n\n"
-                human_just_spoke = True
-            else:
-                agent = speaker
-                print(f"\n💭 {agent.name} is thinking...")
-                yield f"data: {json.dumps({'type': 'thinking', 'agent': agent.name})}\n\n"
-                
-                prompt = agent.prepare_prompt(
-                    topic,
-                    utterances,
-                    is_first=(sim["current_round"] == 0 and i == 0),
-                    human_just_spoke=human_just_spoke
-                )
-                text = agent.generate_response(prompt)
-                audio_base64 = text_to_audio_base64(text, agent.name)
-                
-                data = {
+        next_agent_future = None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            for i, agent in enumerate(speaking_order):
+                sim["current_speaker"] = agent.name
+                text, audio_base64 = None, None
+
+                # ── WAIT FOR PRE-GENERATED TEXT (if any) AND CHECK FOR INTERRUPTS ──
+                if next_agent_future is not None:
+                    wait_time = 0
+                    while wait_time < 90:
+                        if sim["interrupt_reserved"]:
+                            print(f"\n🔔 INTERRUPT DETECTED! Discarding pre-generated text for {agent.name}")
+                            next_agent_future = None
+                            break
+                        try:
+                            text, audio_base64 = next_agent_future.result(timeout=0.5)
+                            print(f"✅ Using pre-generated text for {agent.name}")
+                            break
+                        except concurrent.futures.TimeoutError:
+                            wait_time += 0.5
+                            continue
+
+                # ── HANDLE INTERRUPT: HUMAN TURN BEFORE THIS AGENT SPEAKS ──
+                if sim["interrupt_reserved"]:
+                    sim["interrupt_reserved"] = False
+                    
+                    # Signal human turn immediately
+                    yield f"data: {json.dumps({'type': 'human_start'})}\n\n"
+                    sim["awaiting_human"] = True
+
+                    # Wait for human input (max 120 seconds)
+                    max_wait = 120
+                    waited = 0
+                    while sim["awaiting_human"] and waited < max_wait:
+                        time.sleep(1)
+                        waited += 1
+
+                    if waited >= max_wait:
+                        print("⏰ TIMEOUT: Human took too long to respond")
+                        yield f"data: {json.dumps({'type': 'error', 'message': 'Timeout waiting for human input'})}\n\n"
+                    else:
+                        human_utterance = sim["utterances"][-1]
+                        print(f"✅ Human submitted: \"{human_utterance['text']}\"")
+                        yield f"data: {json.dumps({'type': 'human_response', 'text': human_utterance['text']})}\n\n"
+                        human_just_spoke = True
+
+                    # RE-GENERATE THIS AGENT'S TEXT NOW (incorporating human input)
+                    print(f"🔄 Re-generating {agent.name}'s text (incorporating human input)...")
+                    prompt = agent.prepare_prompt(
+                        topic, list(utterances),
+                        is_first=(i == 0 and sim["current_round"] == 0),
+                        human_just_spoke=human_just_spoke
+                    )
+                    text = agent.generate_response(prompt)
+                    audio_base64 = text_to_audio_base64(text, agent.name)
+                    human_just_spoke = False
+
+                # ── IF NOT INTERRUPTED AND NO PRE-GENERATED TEXT (e.g., very first agent) ──
+                elif text is None:
+                    print(f"\n💭 {agent.name} is thinking...")
+                    prompt = agent.prepare_prompt(
+                        topic, list(utterances),
+                        is_first=(i == 0 and sim["current_round"] == 0),
+                        human_just_spoke=human_just_spoke
+                    )
+                    text = agent.generate_response(prompt)
+                    audio_base64 = text_to_audio_base64(text, agent.name)
+
+                # ── ADD TO UTTERANCES AND SEND TO FRONTEND ──
+                utterance_data = {
                     "agent": agent.name,
                     "text": text,
                     "audio": audio_base64,
                     "timestamp": time.time()
                 }
-                utterances.append(data)
-                
+                utterances.append(utterance_data)
+
                 print(f"🗣️ {agent.name}: \"{text}\"")
+                yield f"data: {json.dumps({'type': 'agent_speaking', 'agent': agent.name})}\n\n"
                 yield f"data: {json.dumps({'type': 'response', 'agent': agent.name, 'text': text, 'audio': audio_base64})}\n\n"
-                human_just_spoke = False
-        
-        sim["current_round"] += 1
-        print(f"\n🎉 Round {sim['current_round']} completed!\n")
-        yield f"data: {json.dumps({'type': 'complete', 'round': sim['current_round']})}\n\n"
+
+                # ── START PRE-GENERATING NEXT AGENT'S TEXT ──
+                next_i = i + 1
+                if next_i < len(speaking_order):
+                    next_agent = speaking_order[next_i]
+                    print(f"⏳ Pre-generating text for {next_agent.name} (lookahead)...")
+                    next_agent_future = executor.submit(
+                        generate_agent_response,
+                        next_agent, topic, list(utterances), False
+                    )
+
+                # ── SYNC BACKEND LOOP WITH FRONTEND AUDIO PLAYBACK ──
+                # Prevents the backend loop from running ahead of the audio playback.
+                # This guarantees we only generate ONE agent ahead, and interrupts apply instantly.
+                if text:
+                    word_count = len(text.split())
+                    # Slow down backend to match actual gTTS playback perfectly
+                    # using an extremely safe pace of 1.8 words per second + 1.5s buffer
+                    estimated_audio_duration = word_count / 1.8 
+                    sleep_time = estimated_audio_duration + 1.5
+                    
+                    print(f"⏳ Backend syncing with frontend audio playback ({sleep_time:.1f}s)...")
+                    slept = 0
+                    while slept < sleep_time:
+                        if sim["interrupt_reserved"]:
+                            print("\n🔔 INTERRUPT DETECTED during audio playback sync!")
+                            break # Break early so the NEXT loop iteration catches the interrupt instantly
+                        time.sleep(0.5)
+                        slept += 0.5
+
+            # ✅ ROUND COMPLETE
+            sim["current_round"] += 1
+            print(f"\n🎉 Round {sim['current_round']} completed!\n")
+            yield f"data: {json.dumps({'type': 'complete', 'round': sim['current_round']})}\n\n"
     
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -894,6 +1003,58 @@ def health_check():
         "ffmpeg_available": ffmpeg_available,
         "vosk_model_path": VOSK_MODEL_PATH if os.path.exists(VOSK_MODEL_PATH) else "Not found"
     }
+
+
+@app.get("/discussion/{sim_id}/feedback")
+def get_discussion_feedback(sim_id: str):
+    db = SessionLocal()
+    try:
+        discussion = db.query(Discussion).filter(
+            Discussion.id == int(sim_id)
+        ).first()
+
+        if not discussion:
+            return {"detail": "Not found"}
+
+        rounds = db.query(HumanResponse).filter(
+            HumanResponse.discussion_id == int(sim_id)
+        ).order_by(HumanResponse.round_number).all()
+
+        return {
+            "discussion": {
+                "topic": discussion.topic,
+                "total_rounds": discussion.total_rounds,
+            },
+            "evaluation": {
+                "grammar": discussion.grammar_score if hasattr(discussion, 'grammar_score') else None,
+                "clarity": discussion.clarity_score if hasattr(discussion, 'clarity_score') else None,
+                "relevance": discussion.relevance_score if hasattr(discussion, 'relevance_score') else None,
+                "politeness": discussion.politeness_score if hasattr(discussion, 'politeness_score') else None,
+                "team_collaboration": discussion.team_collaboration_score if hasattr(discussion, 'team_collaboration_score') else None,
+                "overall": discussion.overall_score if hasattr(discussion, 'overall_score') else None,
+                "human_percentage": discussion.human_percentage if hasattr(discussion, 'human_percentage') else None,
+                "strengths": json.loads(discussion.strengths)
+                    if hasattr(discussion, 'strengths') and discussion.strengths else [],
+                "improvements": json.loads(discussion.improvements)
+                    if hasattr(discussion, 'improvements') and discussion.improvements else [],
+                "final_feedback": discussion.final_feedback if hasattr(discussion, 'final_feedback') else None,
+                "topic": discussion.topic,
+            },
+            "rounds": [
+                {
+                    "round_number": r.round_number,
+                    "text": r.text,
+                    "grammar_score": r.grammar_score,
+                    "clarity_score": r.clarity_score,
+                    "relevance_score": r.relevance_score,
+                    "politeness_score": r.politeness_score,
+                    "feedback": r.feedback,
+                }
+                for r in rounds
+            ]
+        }
+    finally:
+        db.close()
 
 
 @app.post("/end_discussion/{sim_id}")
@@ -959,12 +1120,18 @@ def end_discussion(sim_id: str):
 
     full_human_text = "\n".join(human_texts)
 
-    # 🔥 Enhanced Evaluation Prompt
+    # 🔥 Enhanced Evaluation Prompt WITH INTERRUPT ANALYSIS
+    human_interrupt_count = sim.get("human_interrupt_count", 0)
+    interrupt_context = ""
+    if human_interrupt_count > 0:
+        interrupt_context = f"\n\nINTERRUPT ANALYSIS:\nThe human participant triggered {human_interrupt_count} interrupts during the discussion.\nPlease evaluate:\n- Were interrupts timely and appropriate?\n- Did interrupts add value to the discussion?\n- Did interrupts disrupt the flow or enhance engagement?\n- Overall quality of interrupt usage"
+    
     evaluation_prompt = f"""
 You are an expert Group Discussion evaluator.
 
 Topic: {topic}
 Human speaking share: {human_percentage}% of total discussion.
+Human interrupts: {human_interrupt_count}
 Full Discussion Transcript:
 {transcript}
 
@@ -982,13 +1149,13 @@ For Team Collaboration consider:
 - Did the user acknowledge others?
 - Did the user build on AI agents' ideas?
 - Did the user respectfully agree/disagree?
-- Did the user help move discussion forward?
+- Did the user help move discussion forward?{interrupt_context}
 
 Also provide:
 - Overall score (0-10)
 - 3 strengths
 - 3 areas of improvement
-- Final detailed feedback paragraph (must include collaboration comments)
+- Final detailed feedback paragraph (must include collaboration comments and interrupt analysis if applicable)
 
 Also comment whether participation level was:
 - Too low (<20%)
@@ -1027,7 +1194,9 @@ Return strictly in JSON format like:
             cleaned = cleaned[:-3].strip()
 
     try:
-        result_json = json.loads(cleaned)
+        raw_json = json.loads(cleaned)
+        # ✅ FIX: Convert keys to lowercase safely so the frontend doesn't miss them
+        result_json = {str(k).lower(): v for k, v in raw_json.items()}
         result_json["human_percentage"] = human_percentage
     except:
         print("⚠️ Could not parse JSON")
@@ -1036,44 +1205,49 @@ Return strictly in JSON format like:
 
     print("\n📈 HUMAN PERFORMANCE METRICS")
     print("--------------------------------")
-    print(f"Grammar: {result_json['grammar']}/10")
-    print(f"Clarity: {result_json['clarity']}/10")
-    print(f"Relevance: {result_json['relevance']}/10")
-    print(f"Politeness: {result_json['politeness']}/10")
-    print(f"Team Collaboration: {result_json['team_collaboration']}/10")
-    print(f"Overall: {result_json['overall']}/10")
-    print(f"Percentage of participation: {result_json['human_percentage']}%")
+    print(f"Grammar: {result_json.get('grammar')}/10")
+    print(f"Clarity: {result_json.get('clarity')}/10")
+    print(f"Relevance: {result_json.get('relevance')}/10")
+    print(f"Politeness: {result_json.get('politeness')}/10")
+    print(f"Team Collaboration: {result_json.get('team_collaboration')}/10")
+    print(f"Overall: {result_json.get('overall')}/10")
+    print(f"Percentage of participation: {result_json.get('human_percentage')}%")
     print("\n💪 Strengths:")
-    for s in result_json["strengths"]:
+    for s in result_json.get("strengths", []):
         print(f"- {s}")
 
     print("\n⚠️ Areas to Improve:")
-    for i in result_json["improvements"]:
+    for i in result_json.get("improvements", []):
         print(f"- {i}")
 
     print("\n📝 Final Feedback:")
-    print(result_json["final_feedback"])
+    print(result_json.get("final_feedback"))
     print("================================\n")
 
-    # Save final evaluation to database
+    # ✅ FIX: Safe DB saving. Won't crash and abort if columns (like interrupt_count) are missing!
     try:
         db = SessionLocal()
         discussion = db.query(Discussion).filter(Discussion.id == int(sim_id)).first()
         if discussion:
-            discussion.grammar_score = result_json.get("grammar")
-            discussion.clarity_score = result_json.get("clarity")
-            discussion.relevance_score = result_json.get("relevance")
-            discussion.politeness_score = result_json.get("politeness")
-            discussion.team_collaboration_score = result_json.get("team_collaboration")
-            discussion.overall_score = result_json.get("overall")
-            discussion.human_percentage = result_json.get("human_percentage")
-            discussion.strengths = json.dumps(result_json.get("strengths", []))
-            discussion.improvements = json.dumps(result_json.get("improvements", []))
-            discussion.final_feedback = result_json.get("final_feedback")
+            if hasattr(discussion, 'grammar_score'): discussion.grammar_score = result_json.get("grammar")
+            if hasattr(discussion, 'clarity_score'): discussion.clarity_score = result_json.get("clarity")
+            if hasattr(discussion, 'relevance_score'): discussion.relevance_score = result_json.get("relevance")
+            if hasattr(discussion, 'politeness_score'): discussion.politeness_score = result_json.get("politeness")
+            if hasattr(discussion, 'team_collaboration_score'): discussion.team_collaboration_score = result_json.get("team_collaboration")
+            if hasattr(discussion, 'overall_score'): discussion.overall_score = result_json.get("overall")
+            if hasattr(discussion, 'human_percentage'): discussion.human_percentage = result_json.get("human_percentage")
+            if hasattr(discussion, 'human_interrupt_count'): discussion.human_interrupt_count = human_interrupt_count
+            if hasattr(discussion, 'strengths'): discussion.strengths = json.dumps(result_json.get("strengths", []))
+            if hasattr(discussion, 'improvements'): discussion.improvements = json.dumps(result_json.get("improvements", []))
+            if hasattr(discussion, 'final_feedback'): discussion.final_feedback = result_json.get("final_feedback")
             db.commit()
             print("✅ Final evaluation saved to database")
         db.close()
     except Exception as e:
         print(f"⚠️ Could not save evaluation to DB: {e}")
+        try:
+            db.rollback()
+        except:
+            pass
 
     return result_json

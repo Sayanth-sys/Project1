@@ -49,11 +49,6 @@ function DiscussionPage() {
   const silenceThresholdRef = useRef(3000); // 3 seconds of silence
   const lastSoundTimeRef = useRef(null);
   const animationFrameRef = useRef(null);
-  
-  // ✅ EVENT QUEUE SYSTEM - Prevent concurrent audio playback
-  const eventQueueRef = useRef([]);         // Pending SSE events to process
-  const processingQueueRef = useRef(false); // True while consumer is running
-  const participantsRef = useRef(participants); // Kept in sync via useEffect
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -81,11 +76,6 @@ function DiscussionPage() {
     };
   }, [isRecording]);
 
-  // ✅ KEEP participantsRef IN SYNC WITH participants STATE
-  useEffect(() => {
-    participantsRef.current = participants;
-  }, [participants]);
-
   const checkSystemHealth = async () => {
     try {
       const res = await fetch("http://127.0.0.1:8001/health");
@@ -101,44 +91,6 @@ function DiscussionPage() {
       }
     } catch (err) {
       console.error("❌ Could not check system health:", err);
-    }
-  };
-
-  const endDiscussion = async () => {
-    if (!simId) {
-      navigate('/home');
-      return;
-    }
-    try {
-      const response = await fetch(
-        `http://127.0.0.1:8001/end_discussion/${simId}`,
-        { method: "POST" }
-      );
-      const result = await response.json();
-
-      if (result && !result.error) {
-        // Save result to localStorage so FeedbackPage can read it
-        const feedbackStore = JSON.parse(
-          localStorage.getItem("discussionFeedback") || "{}"
-        );
-        feedbackStore[simId] = {
-          ...result,
-          topic: topic
-        };
-        localStorage.setItem(
-          "discussionFeedback",
-          JSON.stringify(feedbackStore)
-        );
-        navigate(`/feedback/${simId}`);
-      } else {
-        console.error("end_discussion returned error:", result);
-        alert("Could not generate feedback. " + (result.error || ""));
-        navigate('/home');
-      }
-    } catch (err) {
-      console.error("Error ending discussion:", err);
-      alert("Failed to end discussion. Check console.");
-      navigate('/home');
     }
   };
 
@@ -217,7 +169,7 @@ function DiscussionPage() {
         audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
       }
       
-      const source = audioContextRef.current.createMediaStreamSource(stream);
+      const source = audioContextRef.current.createMediaStreamAudioProcessor(stream);
       const analyser = audioContextRef.current.createAnalyser();
       analyser.fftSize = 2048;
       
@@ -420,198 +372,8 @@ function DiscussionPage() {
     }
   };
 
-  // ✅ PROCESS QUEUE SEQUENTIALLY - Prevents concurrent audio playback
-  const processQueue = async () => {
-    if (processingQueueRef.current || eventQueueRef.current.length === 0) {
-      return;
-    }
-
-    processingQueueRef.current = true;
-
-    while (eventQueueRef.current.length > 0) {
-      const data = eventQueueRef.current.shift();
-      console.log("📨 Processing queued event:", data);
-
-      try {
-        if (data.type === 'agent_speaking') {
-          console.log(`🗣️ ${data.agent} is now speaking`);
-          setCurrentSpeaker(data.agent);
-          setIsAgentSpeaking(true);
-
-          setParticipants(prev =>
-            prev.map(p =>
-              p.name === data.agent
-                ? { ...p, status: 'speaking' }
-                : { ...p, status: p.status === 'spoke' ? 'spoke' : 'waiting' }
-            )
-          );
-        }
-
-        else if (data.type === 'interrupt_reserved') {
-          console.log("✅ Interrupt confirmed by server");
-          setInterruptReserved(true);
-        }
-
-        else if (data.type === 'human_start') {
-          console.log('🎤 Human turn triggered! Starting recording...');
-          setIsAgentSpeaking(false);
-          setIsHumanTurn(true);
-          
-          // ✅ CLEAR THE INTERRUPT FLAG HERE SO IT CAN BE USED FOR THE NEXT AGENT
-          setInterruptReserved(false);
-          setInterruptStatus("");
-          
-          setCurrentSpeaker('You');
-          setParticipants(prev =>
-            prev.map(p =>
-              p.name === 'You'
-                ? { ...p, status: 'thinking' }
-                : { ...p, status: 'waiting' }
-            )
-          );
-
-          // Auto-start recording
-          setTimeout(() => {
-            startRecording();
-          }, 500);
-        }
-
-        else if (data.type === 'recording_started') {
-          console.log("🔴 Recording signal received:", data.message);
-          setMessages(prev => [...prev, {
-            id: `system-${Date.now()}`,
-            agent: 'System',
-            text: data.message,
-            isSystem: true
-          }]);
-        }
-
-        else if (data.type === 'human_response') {
-          setMessages(prev => [...prev, {
-            id: `msg-${Date.now()}`,
-            agent: 'You',
-            role: 'Human Participant',
-            text: data.text,
-            isThinking: false,
-            isHuman: true
-          }]);
-
-          setParticipants(prev =>
-            prev.map(p =>
-              p.name === 'You'
-                ? { ...p, status: 'spoke' }
-                : p
-            )
-          );
-          setLoading(true);
-        }
-
-        else if (data.type === 'response') {
-          // ✅ DO NOT set isAgentSpeaking to false here
-          // Keep it true so the interrupt button stays active during audio playback
-          setParticipants(prev =>
-            prev.map(p =>
-              p.name === data.agent
-                ? { ...p, status: 'speaking' }
-                : p
-            )
-          );
-
-          setMessages(prev => {
-            const filtered = prev.filter(m => !(m.agent === data.agent && m.isThinking));
-            return [...filtered, {
-              id: `msg-${Date.now()}`,
-              agent: data.agent,
-              role: participantsRef.current.find(p => p.name === data.agent)?.role || '',
-              text: data.text,
-              isThinking: false
-            }];
-          });
-
-          // ✅ AWAIT AUDIO COMPLETION BEFORE NEXT EVENT
-          if (data.audio) {
-            await new Promise((resolve) => {
-              const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
-              
-              audio.onended = () => {
-                console.log(`✅ ${data.agent}'s audio finished`);
-                // ✅ MOVE setIsAgentSpeaking(false) HERE, after audio finishes
-                setIsAgentSpeaking(false);
-                setParticipants(prev =>
-                  prev.map(p =>
-                    p.name === data.agent
-                      ? { ...p, status: 'spoke' }
-                      : p
-                  )
-                );
-                resolve();
-              };
-
-              audio.onerror = () => {
-                console.warn("Audio play error");
-                // ✅ Also clear flag on error
-                setIsAgentSpeaking(false);
-                setParticipants(prev =>
-                  prev.map(p =>
-                    p.name === data.agent
-                      ? { ...p, status: 'spoke' }
-                      : p
-                  )
-                );
-                resolve();
-              };
-
-              audio.play().catch(err => {
-                console.warn("Could not play audio:", err);
-                // ✅ Also clear flag if play() fails
-                setIsAgentSpeaking(false);
-                setParticipants(prev =>
-                  prev.map(p =>
-                    p.name === data.agent
-                      ? { ...p, status: 'spoke' }
-                      : p
-                  )
-                );
-                resolve();
-              });
-            });
-          } else {
-            // ✅ No audio case — still need to clear the flag
-            setIsAgentSpeaking(false);
-            setParticipants(prev =>
-              prev.map(p =>
-                p.name === data.agent
-                  ? { ...p, status: 'spoke' }
-                  : p
-              )
-            );
-          }
-        }
-
-        else if (data.type === 'complete') {
-          setRound(data.round);
-          setIsAgentSpeaking(false);
-          setParticipants(prev =>
-            prev.map(p => ({ ...p, status: 'waiting' }))
-          );
-          setLoading(false);
-        }
-      } catch (e) {
-        console.error("❌ Error processing queued event:", e);
-      }
-    }
-
-    processingQueueRef.current = false;
-  };
-
   const fetchNextRound = async () => {
     if (!simId) return alert("Start simulation first!");
-    
-    // ✅ RESET QUEUE AND STATE AT START OF EACH ROUND
-    eventQueueRef.current = [];
-    processingQueueRef.current = false;
-    setIsAgentSpeaking(false);
-    
     setLoading(true);
     setInterruptReserved(false); // Reset interrupt flag for new round
     setInterruptStatus("");
@@ -644,13 +406,137 @@ function DiscussionPage() {
             
             try {
               const data = JSON.parse(jsonStr);
-              console.log("📨 Received SSE:", data);
+              console.log("📨 Received:", data);
               
-              // ✅ QUEUE EVENT INSTEAD OF HANDLING IMMEDIATELY
-              eventQueueRef.current.push(data);
+              // ✅ HANDLE NEW EVENT: agent_speaking
+              if (data.type === 'agent_speaking') {
+                console.log(`🗣️ ${data.agent} is now speaking`);
+                setCurrentSpeaker(data.agent);
+                setIsAgentSpeaking(true);
+                
+                setParticipants(prev =>
+                  prev.map(p =>
+                    p.name === data.agent
+                      ? { ...p, status: 'speaking' }
+                      : { ...p, status: 'waiting' }
+                  )
+                );
+              }
               
-              // Start processing queue if not already running
-              processQueue();
+              // ✅ HANDLE NEW EVENT: interrupt_reserved (confirmation)
+              else if (data.type === 'interrupt_reserved') {
+                console.log("✅ Interrupt confirmed by server");
+                setInterruptReserved(true);
+              }
+              
+              // ✅ HANDLE NEW EVENT: human_start (auto-record)
+              else if (data.type === 'human_start') {
+                console.log('🎤 Human turn triggered! Starting recording...');
+                setIsAgentSpeaking(false);
+                setIsHumanTurn(true);
+                setCurrentSpeaker('You');
+                setParticipants(prev =>
+                  prev.map(p =>
+                    p.name === 'You'
+                      ? { ...p, status: 'thinking' }
+                      : { ...p, status: 'waiting' }
+                  )
+                );
+                
+                // Auto-start recording
+                setTimeout(() => {
+                  startRecording();
+                }, 500);
+              }
+              
+              // ✅ HANDLE NEW EVENT: recording_started
+              else if (data.type === 'recording_started') {
+                console.log("🔴 Recording signal received:", data.message);
+                setMessages(prev => [...prev, {
+                  id: `system-${Date.now()}`,
+                  agent: 'System',
+                  text: data.message,
+                  isSystem: true
+                }]);
+              }
+
+              else if (data.type === 'human_response') {
+                setMessages(prev => [...prev, {
+                  id: `msg-${Date.now()}`,
+                  agent: 'You',
+                  role: 'Human Participant',
+                  text: data.text,
+                  isThinking: false,
+                  isHuman: true
+                }]);
+
+                setParticipants(prev =>
+                  prev.map(p =>
+                    p.name === 'You'
+                      ? { ...p, status: 'spoke' }
+                      : p
+                  )
+                );
+                setLoading(true);
+              }
+
+              else if (data.type === 'response') {
+                setIsAgentSpeaking(false);
+                setParticipants(prev =>
+                  prev.map(p =>
+                    p.name === data.agent
+                      ? { ...p, status: 'speaking' }
+                      : p
+                  )
+                );
+
+                setMessages(prev => {
+                  const filtered = prev.filter(m => !(m.agent === data.agent && m.isThinking));
+                  return [...filtered, {
+                    id: `msg-${Date.now()}`,
+                    agent: data.agent,
+                    role: participants.find(p => p.name === data.agent)?.role || '',
+                    text: data.text,
+                    isThinking: false
+                  }];
+                });
+
+                if (data.audio) {
+                  const playAudio = () => {
+                    return new Promise((resolve) => {
+                      const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
+                      audio.onended = resolve;
+                      audio.onerror = () => {
+                        console.warn("Audio play error");
+                        resolve();
+                      };
+                      audio.play().catch(err => {
+                        console.warn("Could not play audio:", err);
+                        resolve();
+                      });
+                    });
+                  };
+                  
+                  playAudio().then(() => {
+                    setParticipants(prev =>
+                      prev.map(p =>
+                        p.name === data.agent
+                          ? { ...p, status: 'spoke' }
+                          : p
+                      )
+                    );
+                  });
+                }
+              }
+
+              else if (data.type === 'complete') {
+                setRound(data.round);
+                setIsAgentSpeaking(false);
+                setParticipants(prev =>
+                  prev.map(p => ({ ...p, status: 'waiting' }))
+                );
+                setLoading(false);
+              }
               
             } catch (e) {
               console.error("❌ Error parsing SSE data:", e);
@@ -787,7 +673,7 @@ function DiscussionPage() {
               </div>
             </div>
             <button 
-              onClick={endDiscussion}
+              onClick={() => navigate('/home')}
               style={{
                 padding: '10px 20px',
                 background: '#6c757d',

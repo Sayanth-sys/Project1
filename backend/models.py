@@ -33,6 +33,9 @@ class Discussion(Base):
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+    # Interrupt tracking
+    human_interrupt_count = Column(Integer, default=0)
+
     # Final evaluation from end_discussion
     grammar_score = Column(Integer, nullable=True)
     clarity_score = Column(Integer, nullable=True)
