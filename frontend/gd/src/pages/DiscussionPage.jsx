@@ -46,7 +46,7 @@ function DiscussionPage() {
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const silenceTimeoutRef = useRef(null);
-  const silenceThresholdRef = useRef(3000); // 3 seconds of silence
+  const silenceThresholdRef = useRef(5000); // ✅ Increased to 5 seconds for better voice capture
   const lastSoundTimeRef = useRef(null);
   const animationFrameRef = useRef(null);
   
@@ -363,29 +363,79 @@ function DiscussionPage() {
 
     try {
       console.log(`📤 Submitting ${audioBlob.size} bytes audio to backend...`);
+      
+      // Show processing status
+      setMessages(prev => [...prev, {
+        id: `system-${Date.now()}`,
+        agent: 'System',
+        text: '⏳ Transcribing your audio... (this may take 5-20 seconds)',
+        isSystem: true
+      }]);
+
       const response = await fetch(`http://127.0.0.1:8001/submit_human_input/${simId}`, {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
+        const errorData = await response.json().catch(() => ({ error: `Server error: ${response.status}` }));
+        throw new Error(errorData.error || `Server error: ${response.status}`);
       }
 
       const data = await response.json();
       console.log('✅ Server response:', data);
       
       if (data.success) {
-        console.log(`💬 Transcribed: "${data.transcribed_text}"`);
+        const transcribedText = data.transcribed_text;
+        console.log(`💬 Transcribed: "${transcribedText}"`);
+        
+        // ✅ DISPLAY TRANSCRIBED TEXT IMMEDIATELY on screen
+        setMessages(prev => {
+          // Filter out the "transcribing" message
+          const filtered = prev.filter(m => !(m.isSystem && m.text.includes('Transcribing')));
+          return [...filtered, {
+            id: `msg-${Date.now()}`,
+            agent: 'You',
+            role: 'Human Participant',
+            text: transcribedText,
+            isHuman: true,
+            isThinking: false
+          }];
+        });
+
+        setParticipants(prev =>
+          prev.map(p =>
+            p.name === 'You'
+              ? { ...p, status: 'spoke' }
+              : p
+          )
+        );
+
         setIsHumanTurn(false);
         setIsHumanSpeaking(false);
       } else {
         console.error("❌ Transcription failed:", data.error);
-        alert(`Could not transcribe audio:\n${data.error}\n\nPlease try:\n1. Speaking louder and clearer\n2. Reducing background noise\n3. Using text input instead`);
+        
+        // Remove processing message and show error
+        setMessages(prev => prev.filter(m => !(m.isSystem && m.text.includes('Transcribing'))));
+        alert(`❌ Audio Processing Failed:\n\n${data.error}`);
       }
     } catch (error) {
       console.error('❌ Error submitting audio:', error);
-      alert(`Failed to submit audio: ${error.message}\n\nPlease use text input instead.`);
+      let userMessage = error.message;
+      
+      // Improve error messages
+      if (error.message.includes('Network')) {
+        userMessage = "Network error: Backend server may be down or not responding";
+      } else if (error.message.includes('timeout')) {
+        userMessage = "Request timeout: Transcription took too long. Please try again or use text input.";
+      } else if (error.message.includes('transcribe')) {
+        userMessage = "Audio transcription failed. Possible causes:\n• Audio too quiet\n• Too much background noise\n• Recording too short\n\nPlease try again or use text input.";
+      }
+      
+      // Remove processing message and show error
+      setMessages(prev => prev.filter(m => !(m.isSystem && m.text.includes('Transcribing'))));
+      alert(`❌ Failed to submit audio:\n\n${userMessage}`);
     } finally {
       setIsProcessing(false);
     }
@@ -395,9 +445,11 @@ function DiscussionPage() {
     if (!textInput.trim()) return;
     
     setIsProcessing(true);
+    const textToSubmit = textInput;
+    
     try {
-      console.log(`📤 Submitting text: "${textInput}"`);
-      const response = await fetch(`http://127.0.0.1:8001/submit_human_input/${simId}?text=${encodeURIComponent(textInput)}`, {
+      console.log(`📤 Submitting text: "${textToSubmit}"`);
+      const response = await fetch(`http://127.0.0.1:8001/submit_human_input/${simId}?text=${encodeURIComponent(textToSubmit)}`, {
         method: 'POST',
       });
 
@@ -406,6 +458,25 @@ function DiscussionPage() {
       
       if (data.success) {
         console.log(`💬 Human typed: "${data.transcribed_text}"`);
+        
+        // ✅ DISPLAY TEXT MESSAGE IMMEDIATELY on screen
+        setMessages(prev => [...prev, {
+          id: `msg-${Date.now()}`,
+          agent: 'You',
+          role: 'Human Participant',
+          text: textToSubmit,
+          isHuman: true,
+          isThinking: false
+        }]);
+
+        setParticipants(prev =>
+          prev.map(p =>
+            p.name === 'You'
+              ? { ...p, status: 'spoke' }
+              : p
+          )
+        );
+
         setTextInput('');
         setIsHumanTurn(false);
         setIsHumanSpeaking(false);

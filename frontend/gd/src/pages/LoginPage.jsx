@@ -40,40 +40,44 @@ function LoginPage({ onLogin }) {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui' }}>
+    <div style={{ 
+      display: 'flex', 
+      height: '100vh', 
+      width: '100vw', 
+      fontFamily: 'system-ui', 
+      overflow: 'hidden' // Prevents any accidental scrollbars
+    }}>
       {/* Left Side - Purple Gradient */}
       <div style={{
-        flex: '0 0 50%',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        flex: '1',
+        background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: 'center',
-        padding: '60px',
+        justifyContent: 'center', // Centers content vertically
+        padding: '40px',
         color: 'white',
-        position: 'relative',
-        overflow: 'hidden'
+        position: 'relative'
       }}>
-        {/* Decorative Circle */}
+        {/* Decorative Circle Container */}
         <div style={{
-          width: '400px',
-          height: '400px',
+          width: 'min(300px, 40vh)', // Responsive sizing based on height
+          height: 'min(300px, 40vh)',
           borderRadius: '50%',
           background: 'rgba(255,255,255,0.1)',
-          position: 'absolute',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          marginBottom: '40px'
+          marginBottom: '30px'
         }}>
-          <div style={{ fontSize: '120px' }}>🎤</div>
+          <div style={{ fontSize: 'clamp(60px, 10vh, 100px)' }}>🎤</div>
         </div>
 
-        <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', marginTop: '450px' }}>
-          <h1 style={{ fontSize: '48px', fontWeight: 'bold', marginBottom: '20px', lineHeight: '1.2' }}>
+        <div style={{ textAlign: 'center', maxWidth: '450px' }}>
+          <h1 style={{ fontSize: 'clamp(24px, 4vh, 48px)', fontWeight: 'bold', marginBottom: '16px', lineHeight: '1.2' }}>
             Master Your<br />Discussion Skills
           </h1>
-          <p style={{ fontSize: '18px', opacity: 0.9, maxWidth: '450px', lineHeight: '1.6' }}>
+          <p style={{ fontSize: 'clamp(14px, 2vh, 18px)', opacity: 0.9, lineHeight: '1.6' }}>
             Simulate real-world group discussions with advanced AI agents. Improve your critical thinking and articulation.
           </p>
         </div>
@@ -81,39 +85,45 @@ function LoginPage({ onLogin }) {
 
       {/* Right Side - White Login Form */}
       <div style={{
-        flex: '0 0 50%',
+        flex: '1',
         background: 'white',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '60px'
+        padding: '40px'
       }}>
-        <div style={{ width: '100%', maxWidth: '420px' }}>
-          {/* Logo */}
-          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+        <div style={{ width: '100%', maxWidth: '400px' }}>
+          {/* Logo Section */}
+          <div style={{ textAlign: 'center', marginBottom: 'clamp(20px, 4vh, 40px)' }}>
             <div style={{
-              width: '64px',
-              height: '64px',
-              background: '#667eea',
-              borderRadius: '16px',
+              width: '56px',
+              height: '56px',
+              background: '#2563eb',
+              borderRadius: '14px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              margin: '0 auto 16px',
-              fontSize: '32px'
+              margin: '0 auto 12px',
+              fontSize: '28px'
             }}>
               💬
             </div>
-            <h2 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '8px' }}>GD Simulator</h2>
+            <h2 style={{ 
+              fontSize: '28px', 
+              fontWeight: '700', 
+              color: '#0f172a', 
+              letterSpacing: '-0.5px', 
+              fontFamily: "'Playfair Display', serif" 
+            }}>GD Simulator</h2>
           </div>
 
-          <h3 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>Welcome back</h3>
-          <p style={{ color: '#6b7280', marginBottom: '32px' }}>Please enter your details to sign in.</p>
+          <h3 style={{ fontSize: '22px', fontWeight: 'bold', marginBottom: '4px' }}>Welcome back</h3>
+          <p style={{ color: '#6b7280', marginBottom: '24px', fontSize: '14px' }}>Please enter your details to sign in.</p>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#374151' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: '#374151' }}>
                 Username
               </label>
               <input
@@ -124,21 +134,18 @@ function LoginPage({ onLogin }) {
                 required
                 style={{
                   width: '100%',
-                  padding: '12px 16px',
+                  padding: '10px 14px',
                   border: '1px solid #d1d5db',
                   borderRadius: '8px',
-                  fontSize: '15px',
+                  fontSize: '14px',
                   outline: 'none',
-                  transition: 'border-color 0.2s',
                   boxSizing: 'border-box'
                 }}
-                onFocus={(e) => e.target.style.borderColor = '#667eea'}
-                onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#374151' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: '#374151' }}>
                 Password
               </label>
               <input
@@ -149,37 +156,34 @@ function LoginPage({ onLogin }) {
                 required
                 style={{
                   width: '100%',
-                  padding: '12px 16px',
+                  padding: '10px 14px',
                   border: '1px solid #d1d5db',
                   borderRadius: '8px',
-                  fontSize: '15px',
+                  fontSize: '14px',
                   outline: 'none',
-                  transition: 'border-color 0.2s',
                   boxSizing: 'border-box'
                 }}
-                onFocus={(e) => e.target.style.borderColor = '#667eea'}
-                onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
               />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: '#6b7280', cursor: 'pointer' }}>
-                <input type="checkbox" style={{ width: '16px', height: '16px' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#6b7280', cursor: 'pointer' }}>
+                <input type="checkbox" style={{ width: '14px', height: '14px' }} />
                 Remember me
               </label>
-              <a href="#" style={{ fontSize: '14px', color: '#667eea', textDecoration: 'none', fontWeight: '600' }}>
+              <a href="#" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: '600' }}>
                 Forgot password?
               </a>
             </div>
 
             {error && (
               <div style={{
-                padding: '12px',
+                padding: '10px',
                 background: '#fee2e2',
                 border: '1px solid #fecaca',
                 borderRadius: '8px',
                 color: '#991b1b',
-                fontSize: '14px'
+                fontSize: '13px'
               }}>
                 {error}
               </div>
@@ -190,24 +194,22 @@ function LoginPage({ onLogin }) {
               disabled={loading}
               style={{
                 width: '100%',
-                padding: '14px',
-                background: loading ? '#9ca3af' : '#667eea',
+                padding: '12px',
+                background: loading ? '#9ca3af' : '#2563eb',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px',
-                fontSize: '16px',
+                fontSize: '15px',
                 fontWeight: '600',
                 cursor: loading ? 'not-allowed' : 'pointer',
-                transition: 'background 0.2s'
+                marginTop: '8px'
               }}
-              onMouseEnter={(e) => !loading && (e.target.style.background = '#5568d3')}
-              onMouseLeave={(e) => !loading && (e.target.style.background = '#667eea')}
             >
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </form>
 
-          <p style={{ textAlign: 'center', marginTop: '24px', fontSize: '14px', color: '#6b7280' }}>
+          <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: '#6b7280' }}>
             Don't have an account?{' '}
             <a
               href="/signup"
@@ -215,7 +217,7 @@ function LoginPage({ onLogin }) {
                 e.preventDefault();
                 navigate('/signup');
               }}
-              style={{ color: '#667eea', textDecoration: 'none', fontWeight: '600' }}
+              style={{ color: '#2563eb', textDecoration: 'none', fontWeight: '600' }}
             >
               Sign up
             </a>

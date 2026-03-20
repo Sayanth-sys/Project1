@@ -1,7 +1,12 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import homeIcon from "../images/home-button.png";
+import logoutIcon from "../images/power.png";
+import addIcon from "../images/add.png";
+import groupIcon from "../images/group.png";
+import clockIcon from "../images/clock.png";
 
-function TopicDiscussion() {
+function TopicDiscussion({ onLogout }) {
   const navigate = useNavigate();
   const [topic, setTopic] = useState("");
   const [duration, setDuration] = useState(15);
@@ -57,44 +62,123 @@ function TopicDiscussion() {
 
   return (
     <div style={styles.page}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&display=swap');
+        .topic-page-title {
+          font-family: 'Playfair Display', serif;
+          font-size: 48px;
+          font-weight: 700;
+          color: #0f172a;
+          margin-bottom: 12px;
+          letter-spacing: -1px;
+          text-align: center;
+        }
+        .topic-card {
+          background: #ffffff;
+          padding: 48px;
+          border-radius: 24px;
+          border: 1px solid rgba(226, 232, 240, 0.8);
+          box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(37, 99, 235, 0.05);
+          transition: transform 0.3s ease, box-shadow 0.3s ease;
+          position: relative;
+          overflow: hidden;
+        }
+        .topic-card::before {
+          content: "";
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 6px;
+          background: linear-gradient(90deg, #2563eb, #8b5cf6);
+        }
+        .topic-card:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 25px 50px -12px rgba(37, 99, 235, 0.15), 0 0 0 1px rgba(37, 99, 235, 0.1);
+        }
+        .topic-textarea:focus {
+          border-color: #2563eb !important;
+          box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1) !important;
+          background: #ffffff !important;
+        }
+        .topic-primary-btn {
+          padding: 14px 40px;
+          background: transparent;
+          color: #2563eb;
+          border: 2px solid #2563eb;
+          border-radius: 50px;
+          font-size: 16px;
+          font-weight: 700;
+          cursor: pointer;
+          box-shadow: none;
+          transition: all 0.3s ease;
+        }
+        .topic-primary-btn:hover {
+          background: #2563eb;
+          color: #ffffff;
+          transform: translateY(-2px);
+          box-shadow: 0 15px 25px rgba(37, 99, 235, 0.15);
+        }
+      `}</style>
       <div style={styles.container}>
-        {/* SIDEBAR - Matching the Home Layout */}
+
+        {/* UPDATED SIDEBAR - Matches HomePage Layout */}
         <div style={styles.sidebar}>
-          
+          {/* Top Section: Navigation */}
+          <div style={styles.sidebarTop}>
+            <div style={styles.sidebarBrand}>
+              <div style={styles.brandIcon}>GD</div>
+              <span style={styles.brandName}>SIMULATOR</span>
+            </div>
 
-          <button 
-            style={styles.btn}
-            onClick={() => navigate("/home")}
-          >
-            <span style={styles.btnIcon}>🏠</span>
-            Dashboard
-          </button>
+            <p style={styles.sidebarLabel}>Main Menu</p>
 
-          <button style={styles.activeBtn}>
-            <span style={styles.btnIcon}>➕</span>
-            New Session
-          </button>
-          
-          <div style={styles.sidebarDivider} />
- 
+            <button
+              style={styles.btn}
+              onClick={() => navigate("/home")}
+            >
+              <img src={homeIcon} alt="Home" style={styles.btnIcon} />
+              Home
+            </button>
+
+            <button style={styles.activeBtn}>
+              <img src={addIcon} alt="New Session" style={styles.btnIcon} />
+              New Session
+            </button>
+          </div>
+
+          {/* Bottom Section: Logout */}
+          <div style={styles.sidebarBottom}>
+            <div style={styles.sidebarDivider} />
+            <button
+              style={styles.logoutBtnSidebar}
+              onClick={() => {
+                onLogout();
+                navigate("/login");
+              }}
+            >
+              <img src={logoutIcon} alt="Logout" style={styles.btnIcon} />
+              Logout
+            </button>
+          </div>
         </div>
 
         {/* CONTENT */}
         <div style={styles.contentWrapper}>
           <div style={styles.content}>
             <div style={styles.formContainer}>
-              <header style={styles.header}>
-                <h1 style={styles.title}>New Discussion</h1>
-                <p style={styles.subtitle}>Set the stage for your AI-powered conversation</p>
+              <header style={{ ...styles.header, textAlign: 'center' }}>
+                <h1 className="topic-page-title">New Discussion</h1>
               </header>
 
-              <div style={styles.card}>
+              <div className="topic-card">
                 <div style={styles.formGroup}>
                   <label style={styles.label}>
-                    <span style={styles.labelIcon}>📝</span>
+                    <span style={styles.labelIcon}></span>
                     What do you want to talk about?
                   </label>
                   <textarea
+                    className="topic-textarea"
                     placeholder="Describe your topic in detail... (e.g. The ethics of space exploration or future of remote work)"
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
@@ -106,7 +190,7 @@ function TopicDiscussion() {
                 <div style={styles.formRow}>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>
-                      <span style={styles.labelIcon}>⏱️</span>
+                      <img src={clockIcon} alt="Session Duration" style={{ width: "18px", height: "18px", objectFit: "contain" }} />
                       Session Duration
                     </label>
                     <div style={styles.selectWrapper}>
@@ -125,7 +209,7 @@ function TopicDiscussion() {
 
                   <div style={styles.formGroup}>
                     <label style={styles.label}>
-                      <span style={styles.labelIcon}>👥</span>
+                      <img src={groupIcon} alt="Group Setup" style={{ width: "18px", height: "18px", objectFit: "contain" }} />
                       Group Setup
                     </label>
                     <div style={styles.infoBox}>
@@ -136,7 +220,7 @@ function TopicDiscussion() {
                 </div>
 
                 <div style={styles.buttonGroup}>
-                  <button onClick={startDiscussion} style={styles.primaryBtn}>
+                  <button onClick={startDiscussion} className="topic-primary-btn">
                     Launch Session
                   </button>
                   <button
@@ -147,13 +231,6 @@ function TopicDiscussion() {
                   </button>
                 </div>
               </div>
-
-              <div style={styles.tipBox}>
-                <span style={{fontSize: '20px'}}>💡</span>
-                <p style={styles.tipText}>
-                  <strong>Pro Tip:</strong> Be specific! Instead of "Science," try "The impact of quantum computing on modern cybersecurity."
-                </p>
-              </div>
             </div>
           </div>
         </div>
@@ -163,13 +240,13 @@ function TopicDiscussion() {
 }
 
 const styles = {
-  page: { 
-    minHeight: "100vh", 
+  page: {
+    minHeight: "100vh",
     background: "#f8fafc",
     fontFamily: "'Inter', sans-serif",
     color: "#1e293b",
   },
-  container: { 
+  container: {
     display: "flex",
     minHeight: "100vh",
   },
@@ -179,9 +256,11 @@ const styles = {
     padding: "32px 24px",
     display: "flex",
     flexDirection: "column",
+    justifyContent: "space-between", // Key: Keeps navigation top and logout bottom
     borderRight: "1px solid #e2e8f0",
     position: "fixed",
     height: "100vh",
+    boxSizing: "border-box",
   },
   sidebarBrand: {
     display: "flex",
@@ -206,6 +285,7 @@ const styles = {
     fontWeight: "700",
     color: "#0f172a",
     letterSpacing: "-0.5px",
+    fontFamily: "'Playfair Display', serif",
   },
   sidebarLabel: {
     fontSize: "12px",
@@ -221,6 +301,7 @@ const styles = {
     margin: "20px 0",
   },
   btn: {
+    width: "100%",
     padding: "12px 16px",
     border: "none",
     background: "transparent",
@@ -236,6 +317,7 @@ const styles = {
     transition: "0.2s",
   },
   activeBtn: {
+    width: "100%",
     padding: "12px 16px",
     border: "none",
     background: "#eff6ff",
@@ -247,15 +329,40 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "12px",
+    cursor: "pointer",
+  },
+  logoutBtnSidebar: {
+    width: "100%",
+    padding: "12px 16px",
+    border: "none",
+    background: "#eff6ff",
+    color: "#2563eb",
+    cursor: "pointer",
+    borderRadius: "12px",
+    fontSize: "14px",
+    fontWeight: "600",
+    textAlign: "left",
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    transition: "all 0.2s ease",
+  },
+  btnIcon: {
+    width: "20px",
+    height: "20px",
+    objectFit: "contain",
   },
   contentWrapper: {
     flex: 1,
     marginLeft: "280px",
   },
-  content: { 
-    padding: "60px 20px",
+  content: {
+    minHeight: "100vh",
+    padding: "8px 20px 40px",
+    boxSizing: "border-box",
     display: "flex",
     justifyContent: "center",
+    alignItems: "flex-start",
   },
   formContainer: {
     maxWidth: "640px",
@@ -272,8 +379,8 @@ const styles = {
     marginBottom: "8px",
     letterSpacing: "-0.02em"
   },
-  subtitle: { 
-    color: "#64748b", 
+  subtitle: {
+    color: "#64748b",
     fontSize: "16px",
   },
   card: {
@@ -372,22 +479,6 @@ const styles = {
     fontSize: "15px",
     fontWeight: "500",
     cursor: "pointer",
-  },
-  tipBox: {
-    marginTop: "32px",
-    padding: "20px",
-    background: "#fffbeb",
-    border: "1px solid #fef3c7",
-    borderRadius: "16px",
-    display: "flex",
-    gap: "16px",
-    alignItems: "flex-start"
-  },
-  tipText: {
-    margin: 0,
-    fontSize: "14px",
-    color: "#92400e",
-    lineHeight: "1.5"
   }
 };
 

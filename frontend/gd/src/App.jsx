@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
-import Navbar from "./components/Navbar";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import HomePage from "./pages/HomePage";
 import TopicSelectionPage from "./pages/TopicSelectionPage";
-import DiscussionPage from "./pages/DiscussionPage";
+import DiscussionPage from "./pages/DiscussionPage_Interrupt";
 import FeedbackPage from "./pages/FeedbackPage";
 
 import "./App.css";
@@ -32,9 +31,6 @@ function App() {
   return (
     <Router>
       <div className="app-bg">
-        {/* Navbar WITHOUT logout */}
-        {user && <Navbar user={user} onLogout={handleLogout} />}
-
         <Routes>
           {/* ROOT */}
           <Route
@@ -66,7 +62,7 @@ function App() {
           <Route
             path="/topic-selection"
             element={
-              user ? <TopicSelectionPage /> : <Navigate to="/login" replace />
+              user ? <TopicSelectionPage onLogout={handleLogout} /> : <Navigate to="/login" replace />
             }
           />
 
