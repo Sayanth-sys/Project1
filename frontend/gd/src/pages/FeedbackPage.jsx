@@ -1,49 +1,84 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 
 function FeedbackPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [feedback, setFeedback] = useState(null);
   const [roundData, setRoundData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 1. Load final evaluation from localStorage
-    const feedbackStore = JSON.parse(localStorage.getItem("discussionFeedback") || "{}");
+    const isNewEnd = location.state?.requiresEndDiscussion;
+    const currentTopic = location.state?.topic;
 
-    // ✅ FIX: Enhanced merging logic to guarantee the data displays properly
-    fetch(`http://127.0.0.1:8001/discussion/${id}/feedback`)
-      .then((res) => res.json())
-      .then((data) => {
+    const loadData = async () => {
+      setLoading(true);
+      
+      const feedbackStore = JSON.parse(localStorage.getItem("discussionFeedback") || "{}");
+
+      try {
+        // If coming directly from the End Discussion button, calculate feedback FIRST
+        if (isNewEnd) {
+          console.log("Generating fresh feedback...");
+          const endRes = await fetch(`http://127.0.0.1:8001/end_discussion/${id}`, { method: "POST" });
+          const endData = await endRes.json();
+          if (endData && !endData.error) {
+            feedbackStore[id] = { ...endData, topic: currentTopic };
+            localStorage.setItem("discussionFeedback", JSON.stringify(feedbackStore));
+          }
+        }
+
+        // Load the finalized data
+        const res = await fetch(`http://127.0.0.1:8001/discussion/${id}/feedback`);
+        const data = await res.json();
+
         if (data && !data.detail) {
           setRoundData(data);
-
-          const localData = feedbackStore[id] || {};
+          
+          const localData = feedbackStore[String(id).trim()] || {};
           const dbData = data.evaluation || {};
-
-          // Merge local and DB data ensuring NO null values wipe out valid ones
-          setFeedback({
-            ...dbData,
-            ...localData,
-            overall: localData.overall ?? dbData.overall,
-            human_percentage: localData.human_percentage ?? dbData.human_percentage,
+          
+          console.log("DB Payload:", dbData);
+          console.log("Local Payload:", localData);
+          
+          const finalFeedback = {
+            grammar: localData.grammar || dbData.grammar || 0,
+            clarity: localData.clarity || dbData.clarity || 0,
+            relevance: localData.relevance || dbData.relevance || 0,
+            politeness: localData.politeness || dbData.politeness || 0,
+            team_collaboration: localData.team_collaboration || dbData.team_collaboration || 0,
+            overall: localData.overall || dbData.overall || 0,
+            human_percentage: localData.human_percentage ?? dbData.human_percentage ?? 0,
+            human_interrupt_count: localData.human_interrupt_count ?? dbData.human_interrupt_count ?? data.discussion?.human_interrupt_count ?? 0,
+            strengths: (localData.strengths && localData.strengths.length > 0) ? localData.strengths : dbData.strengths || [],
+            improvements: (localData.improvements && localData.improvements.length > 0) ? localData.improvements : dbData.improvements || [],
+            final_feedback: localData.final_feedback || dbData.final_feedback || "",
             topic: localData.topic || data.discussion?.topic || "Discussion"
-          });
+          };
+
+          console.log("Merged Strategy Output:", finalFeedback);
+          setFeedback(finalFeedback);
+
+        } else if (feedbackStore[String(id).trim()]) {
+          setFeedback(feedbackStore[String(id).trim()]);
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error("Could not fetch round data:", err);
-        // Fallback to strictly local storage if backend fetch completely fails
-        if (feedbackStore[id]) {
-          setFeedback(feedbackStore[id]);
+        if (feedbackStore[String(id).trim()]) {
+          setFeedback(feedbackStore[String(id).trim()]);
         }
-      })
-      .finally(() => setLoading(false));
-  }, [id]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [id, location.state]);
 
   // Get topic from either source
-  const topic = feedback?.topic || roundData?.discussion?.topic || "Discussion";
+  const topic = feedback?.topic || roundData?.discussion?.topic || location.state?.topic || "Discussion";
 
   // Score bar component
   const ScoreBar = ({ label, score, max = 10, color = "#2563eb" }) => {
@@ -92,300 +127,207 @@ function FeedbackPage() {
 
   return (
     <div style={styles.page}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&display=swap');
-        .feedback-page-title {
-          font-family: 'Playfair Display', serif;
-          font-size: 36px;
-          font-weight: 700;
-          color: #0f172a;
-          margin: 0 0 4px 0;
-          letter-spacing: -1px;
-        }
-        .feedback-card {
-          background: #ffffff;
-          padding: 32px;
-          border-radius: 20px;
-          border: 1px solid rgba(226, 232, 240, 0.8);
-          box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(37, 99, 235, 0.03);
-          transition: transform 0.3s ease, box-shadow 0.3s ease;
-          position: relative;
-          overflow: hidden;
-          margin-bottom: 24px;
-        }
-        .feedback-card::before {
-          content: "";
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 5px;
-          background: linear-gradient(90deg, #2563eb, #8b5cf6);
-          opacity: 0.8;
-        }
-        .feedback-card:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 20px 40px -12px rgba(37, 99, 235, 0.12), 0 0 0 1px rgba(37, 99, 235, 0.08);
-        }
-        
-        .feedback-round-card {
-          background: #ffffff;
-          border-radius: 16px;
-          padding: 24px;
-          border: 1px solid #e2e8f0;
-          box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.03);
-          transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-        .feedback-round-card:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 12px 24px -8px rgba(37, 99, 235, 0.15);
-          border-color: rgba(37, 99, 235, 0.3);
-        }
-
-        .feedback-strength-card {
-          background: #ffffff;
-          padding: 32px;
-          border-radius: 20px;
-          border: 1px solid rgba(226, 232, 240, 0.8);
-          box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.05);
-          transition: transform 0.3s ease, box-shadow 0.3s ease;
-          position: relative;
-          overflow: hidden;
-          border-left: 6px solid #10b981;
-        }
-        .feedback-strength-card:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 20px 40px -12px rgba(16, 185, 129, 0.15);
-        }
-
-        .feedback-improve-card {
-          background: #ffffff;
-          padding: 32px;
-          border-radius: 20px;
-          border: 1px solid rgba(226, 232, 240, 0.8);
-          box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.05);
-          transition: transform 0.3s ease, box-shadow 0.3s ease;
-          position: relative;
-          overflow: hidden;
-          border-left: 6px solid #f59e0b;
-        }
-        .feedback-improve-card:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 20px 40px -12px rgba(245, 158, 11, 0.15);
-        }
-
-        .feedback-overall-card {
-          background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-          border-radius: 24px;
-          padding: 36px 48px;
-          display: flex;
-          align-items: center;
-          gap: 40px;
-          margin-bottom: 32px;
-          color: #fff;
-          box-shadow: 0 20px 40px -10px rgba(30, 41, 59, 0.3);
-          transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        .feedback-overall-card:hover {
-          transform: translateY(-5px);
-          box-shadow: 0 25px 50px -12px rgba(30, 41, 59, 0.4);
-        }
-      `}</style>
       <div style={styles.container}>
-        {/* SIDEBAR */}
-        <div style={styles.sidebar}>
-          <div style={styles.sidebarBrand}>
-            <div style={styles.brandIcon}>GD</div>
-            <span style={styles.brandName}>SIMULATOR</span>
-          </div>
-
-          <p style={styles.sidebarLabel}>Navigation</p>
-
-          <button style={styles.backToHomeBtn} onClick={() => navigate("/home")}>
-            <span style={{ fontSize: "18px", fontWeight: "bold" }}>←</span> Back to Dashboard
+        {/* Header */}
+        <div style={styles.header}>
+          <button style={styles.backBtn} onClick={() => navigate("/home")}>
+            ← Back
           </button>
+          <div>
+            <h1 style={styles.title}>Discussion Feedback</h1>
+            <p style={styles.subtitle}>{topic}</p>
+          </div>
         </div>
 
-        {/* CONTENT */}
-        <div style={styles.contentWrapper}>
-          <div style={styles.content}>
-            {/* Header */}
-            <div style={styles.header}>
-              <div>
-                <h1 className="feedback-page-title">Discussion Feedback</h1>
-                <p style={styles.subtitle}>{topic}</p>
-              </div>
+        {/* No evaluation data notice */}
+        {!feedback && (
+          <div style={{
+            background: "#fffbeb",
+            border: "1px solid #fbbf24",
+            borderRadius: "16px",
+            padding: "24px",
+            marginBottom: "24px",
+            display: "flex",
+            alignItems: "center",
+            gap: "16px",
+          }}>
+            <div style={{ fontSize: "32px" }}>⚠️</div>
+            <div>
+              <h3 style={{ margin: "0 0 4px 0", color: "#92400e", fontSize: "16px" }}>
+                No final evaluation saved for this session
+              </h3>
+              <p style={{ margin: 0, color: "#a16207", fontSize: "14px" }}>
+                This may happen if the discussion ended before evaluation completed, or if there was a connection issue. 
+                Start a new discussion to see full feedback results.
+              </p>
             </div>
+          </div>
+        )}
 
-            {/* No evaluation data notice */}
-            {!feedback && (
+        {/* Overall Score Card */}
+        {feedback && (
+          <div style={styles.overallCard}>
+            <div style={styles.overallScoreCircle}>
+              <div style={styles.overallScoreNumber}>{feedback.overall || 0}</div>
+              <div style={styles.overallScoreMax}>/10</div>
+            </div>
+            <div style={styles.overallInfo}>
+              <h2 style={styles.overallTitle}>Overall Performance</h2>
+              <p style={styles.overallSubtitle}>
+                {feedback.overall >= 8
+                  ? "Excellent performance! 🌟"
+                  : feedback.overall >= 6
+                  ? "Good job! Keep improving 👍"
+                  : feedback.overall >= 4
+                  ? "Decent effort, room for growth 💪"
+                  : "Needs significant improvement 📚"}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Human Participation */}
+        {feedback && feedback.human_percentage !== undefined && (
+          <div style={styles.card}>
+            <h3 style={styles.cardTitle}>🗣️ Speaking Time & Engagement</h3>
+            <div style={styles.participationRow}>
+              <div style={styles.participationBarBg}>
+                <div
+                  style={{
+                    ...styles.participationBarFill,
+                    width: `${Math.min(feedback.human_percentage || 0, 100)}%`,
+                    background:
+                      (feedback.human_percentage || 0) < 20
+                        ? "#ef4444"
+                        : (feedback.human_percentage || 0) > 40
+                        ? "#f59e0b"
+                        : "#10b981",
+                  }}
+                />
+              </div>
+              <span style={styles.participationPct}>{feedback.human_percentage || 0}%</span>
+            </div>
+            <p style={styles.participationNote}>
+              {(feedback.human_percentage || 0) < 20
+                ? "⚠️ Too low — try to contribute more actively"
+                : (feedback.human_percentage || 0) > 40
+                ? "⚠️ Dominating — give others more space to speak"
+                : "✅ Balanced participation — well done!"}
+            </p>
+            
+            {/* ✅ INTERRUPT ANALYSIS */}
+            {feedback && feedback.human_interrupt_count !== undefined && (
               <div style={{
-                background: "#fffbeb",
-                border: "1px solid #fbbf24",
-                borderRadius: "16px",
-                padding: "24px",
-                marginBottom: "24px",
-                display: "flex",
-                alignItems: "center",
-                gap: "16px",
+                marginTop: '16px',
+                paddingTop: '16px',
+                borderTop: '1px solid #e2e8f0'
               }}>
-                <div style={{ fontSize: "32px" }}>⚠️</div>
-                <div>
-                  <h3 style={{ margin: "0 0 4px 0", color: "#92400e", fontSize: "16px" }}>
-                    No final evaluation saved for this session
-                  </h3>
-                  <p style={{ margin: 0, color: "#a16207", fontSize: "14px" }}>
-                    This may happen if the discussion ended before evaluation completed, or if there was a connection issue.
-                    Start a new discussion to see full feedback results.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Overall Score Card */}
-            {feedback && (
-              <div className="feedback-overall-card">
-                <div style={styles.overallScoreCircle}>
-                  <div style={styles.overallScoreNumber}>{feedback.overall || 0}</div>
-                  <div style={styles.overallScoreMax}>/10</div>
-                </div>
-                <div style={styles.overallInfo}>
-                  <h2 style={styles.overallTitle}>Overall Performance</h2>
-                  <p style={styles.overallSubtitle}>
-                    {feedback.overall >= 8
-                      ? "Excellent performance! 🌟"
-                      : feedback.overall >= 6
-                        ? "Good job! Keep improving 👍"
-                        : feedback.overall >= 4
-                          ? "Decent effort, room for growth 💪"
-                          : "Needs significant improvement 📚"}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Human Participation */}
-            {feedback && feedback.human_percentage !== undefined && (
-              <div className="feedback-card">
-                <h3 style={styles.cardTitle}>🗣️ Speaking Time</h3>
-                <div style={styles.participationRow}>
-                  <div style={styles.participationBarBg}>
-                    <div
-                      style={{
-                        ...styles.participationBarFill,
-                        width: `${Math.min(feedback.human_percentage || 0, 100)}%`,
-                        background:
-                          (feedback.human_percentage || 0) < 20
-                            ? "#ef4444"
-                            : (feedback.human_percentage || 0) > 40
-                              ? "#f59e0b"
-                              : "#10b981",
-                      }}
-                    />
-                  </div>
-                  <span style={styles.participationPct}>{feedback.human_percentage || 0}%</span>
-                </div>
-                <p style={styles.participationNote}>
-                  {(feedback.human_percentage || 0) < 20
-                    ? "⚠️ Too low — try to contribute more actively"
-                    : (feedback.human_percentage || 0) > 40
-                      ? "⚠️ Dominating — give others more space to speak"
-                      : "✅ Balanced participation — well done!"}
+                <p style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '600', color: '#475569' }}>
+                  🔔 Interrupts Used: <strong>{feedback.human_interrupt_count}</strong>
+                </p>
+                <p style={{ margin: 0, fontSize: '13px', color: '#64748b', lineHeight: '1.6' }}>
+                  {feedback.human_interrupt_count === 0
+                    ? "No interrupts used. Consider engaging more proactively in discussions."
+                    : feedback.human_interrupt_count === 1
+                    ? "Good! You used one well-timed interrupt to share your perspective."
+                    : feedback.human_interrupt_count <= 3
+                    ? `👍 ${feedback.human_interrupt_count} interrupts used. Ensure they add value rather than disrupt flow.`
+                    : `⚠️ ${feedback.human_interrupt_count} interrupts used. Try to be more strategic and concise with interrupts.`}
                 </p>
               </div>
             )}
-
-            {/* Detailed Scores */}
-            {feedback && (
-              <div className="feedback-card">
-                <h3 style={styles.cardTitle}>📊 Detailed Scores</h3>
-                <div style={styles.scoresGrid}>
-                  <ScoreBar label="Grammar" score={feedback.grammar} />
-                  <ScoreBar label="Clarity" score={feedback.clarity} />
-                  <ScoreBar label="Relevance" score={feedback.relevance} />
-                  <ScoreBar label="Politeness" score={feedback.politeness} />
-                  <ScoreBar label="Team Collaboration" score={feedback.team_collaboration} />
-                </div>
-              </div>
-            )}
-
-            {/* Strengths & Improvements */}
-            {feedback && (
-              <div style={styles.twoColGrid}>
-                <div className="feedback-strength-card">
-                  <h3 style={styles.cardTitle}>💪 Strengths</h3>
-                  <ul style={styles.list}>
-                    {(feedback.strengths || []).map((s, i) => (
-                      <li key={i} style={styles.listItem}>
-                        <span style={styles.checkIcon}>✓</span> {s}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="feedback-improve-card">
-                  <h3 style={styles.cardTitle}>⚡ Areas to Improve</h3>
-                  <ul style={styles.list}>
-                    {(feedback.improvements || []).map((imp, i) => (
-                      <li key={i} style={styles.listItem}>
-                        <span style={styles.warnIcon}>!</span> {imp}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {/* Final Feedback */}
-            {feedback && feedback.final_feedback && (
-              <div className="feedback-card">
-                <h3 style={styles.cardTitle}>📝 Evaluator's Feedback</h3>
-                <p style={styles.feedbackText}>{feedback.final_feedback}</p>
-              </div>
-            )}
-
-            {/* Per-Round Scores */}
-            {roundData && roundData.rounds && roundData.rounds.length > 0 && (
-              <div className="feedback-card">
-                <h3 style={styles.cardTitle}>📋 Per-Round Performance</h3>
-                <div style={styles.roundsContainer}>
-                  {roundData.rounds.map((r, idx) => (
-                    <div key={idx} className="feedback-round-card">
-                      <div style={styles.roundHeader}>
-                        <span style={styles.roundBadge}>Round {r.round_number}</span>
-                      </div>
-                      <p style={styles.roundText}>"{r.text}"</p>
-                      <div style={styles.roundScores}>
-                        {r.grammar_score !== null && (
-                          <span style={styles.roundScoreTag}>
-                            Grammar: {r.grammar_score}/10
-                          </span>
-                        )}
-                        {r.clarity_score !== null && (
-                          <span style={styles.roundScoreTag}>
-                            Clarity: {r.clarity_score}/10
-                          </span>
-                        )}
-                        {r.relevance_score !== null && (
-                          <span style={styles.roundScoreTag}>
-                            Relevance: {r.relevance_score}/10
-                          </span>
-                        )}
-                        {r.politeness_score !== null && (
-                          <span style={styles.roundScoreTag}>
-                            Politeness: {r.politeness_score}/10
-                          </span>
-                        )}
-                      </div>
-                      {r.feedback && (
-                        <p style={styles.roundFeedback}>{r.feedback}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
-        </div>
+        )}
+
+        {/* Detailed Scores */}
+        {feedback && (
+          <div style={styles.card}>
+            <h3 style={styles.cardTitle}>📊 Detailed Scores</h3>
+            <div style={styles.scoresGrid}>
+              <ScoreBar label="Grammar" score={feedback.grammar} />
+              <ScoreBar label="Clarity" score={feedback.clarity} />
+              <ScoreBar label="Relevance" score={feedback.relevance} />
+              <ScoreBar label="Politeness" score={feedback.politeness} />
+              <ScoreBar label="Team Collaboration" score={feedback.team_collaboration} />
+            </div>
+          </div>
+        )}
+
+        {/* Strengths & Improvements */}
+        {feedback && (
+          <div style={styles.twoColGrid}>
+            <div style={{ ...styles.card, borderLeft: "4px solid #10b981" }}>
+              <h3 style={styles.cardTitle}>💪 Strengths</h3>
+              <ul style={styles.list}>
+                {(feedback.strengths || []).map((s, i) => (
+                  <li key={i} style={styles.listItem}>
+                    <span style={styles.checkIcon}>✓</span> {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div style={{ ...styles.card, borderLeft: "4px solid #f59e0b" }}>
+              <h3 style={styles.cardTitle}>⚡ Areas to Improve</h3>
+              <ul style={styles.list}>
+                {(feedback.improvements || []).map((imp, i) => (
+                  <li key={i} style={styles.listItem}>
+                    <span style={styles.warnIcon}>!</span> {imp}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+
+        {/* Final Feedback */}
+        {feedback && feedback.final_feedback && (
+          <div style={styles.card}>
+            <h3 style={styles.cardTitle}>📝 Evaluator's Feedback</h3>
+            <p style={styles.feedbackText}>{feedback.final_feedback}</p>
+          </div>
+        )}
+
+        {/* Per-Round Scores */}
+        {roundData && roundData.rounds && roundData.rounds.length > 0 && (
+          <div style={styles.card}>
+            <h3 style={styles.cardTitle}>📋 Per-Round Performance</h3>
+            <div style={styles.roundsContainer}>
+              {roundData.rounds.map((r, idx) => (
+                <div key={idx} style={styles.roundCard}>
+                  <div style={styles.roundHeader}>
+                    <span style={styles.roundBadge}>Round {r.round_number}</span>
+                  </div>
+                  <p style={styles.roundText}>"{r.text}"</p>
+                  <div style={styles.roundScores}>
+                    {r.grammar_score !== null && (
+                      <span style={styles.roundScoreTag}>
+                        Grammar: {r.grammar_score}/10
+                      </span>
+                    )}
+                    {r.clarity_score !== null && (
+                      <span style={styles.roundScoreTag}>
+                        Clarity: {r.clarity_score}/10
+                      </span>
+                    )}
+                    {r.relevance_score !== null && (
+                      <span style={styles.roundScoreTag}>
+                        Relevance: {r.relevance_score}/10
+                      </span>
+                    )}
+                    {r.politeness_score !== null && (
+                      <span style={styles.roundScoreTag}>
+                        Politeness: {r.politeness_score}/10
+                      </span>
+                    )}
+                  </div>
+                  {r.feedback && (
+                    <p style={styles.roundFeedback}>{r.feedback}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -397,86 +339,28 @@ const styles = {
     background: "#f8fafc",
     fontFamily: "'Inter', sans-serif",
     color: "#1e293b",
+    padding: "40px 24px",
   },
   container: {
-    display: "flex",
-    minHeight: "100vh",
-  },
-  sidebar: {
-    width: "280px",
-    background: "#ffffff",
-    padding: "32px 24px",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "flex-start",
-    borderRight: "1px solid #e2e8f0",
-    position: "fixed",
-    height: "100vh",
-    boxSizing: "border-box",
-  },
-  sidebarBrand: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    marginBottom: "40px",
-    paddingLeft: "10px",
-  },
-  brandIcon: {
-    background: "#2563eb",
-    color: "#fff",
-    width: "32px",
-    height: "32px",
-    borderRadius: "8px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontWeight: "bold",
-  },
-  brandName: {
-    fontSize: "20px",
-    fontWeight: "700",
-    color: "#0f172a",
-    letterSpacing: "-0.5px",
-    fontFamily: "'Playfair Display', serif",
-  },
-  sidebarLabel: {
-    fontSize: "12px",
-    fontWeight: "600",
-    color: "#94a3b8",
-    textTransform: "uppercase",
-    margin: "24px 0 8px 12px",
-    letterSpacing: "0.05em",
-  },
-  backToHomeBtn: {
-    width: "100%",
-    padding: "12px 16px",
-    border: "none",
-    background: "#eff6ff",
-    color: "#2563eb",
-    borderRadius: "12px",
-    fontSize: "14px",
-    fontWeight: "600",
-    textAlign: "left",
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-  },
-  contentWrapper: {
-    flex: 1,
-    marginLeft: "280px",
-  },
-  content: {
-    padding: "48px 64px 64px",
-    maxWidth: "900px",
+    maxWidth: "800px",
     margin: "0 auto",
   },
   header: {
     display: "flex",
     alignItems: "center",
     gap: "24px",
-    marginBottom: "40px",
+    marginBottom: "32px",
+  },
+  backBtn: {
+    padding: "10px 20px",
+    background: "#ffffff",
+    border: "1px solid #e2e8f0",
+    borderRadius: "10px",
+    color: "#475569",
+    fontWeight: "600",
+    cursor: "pointer",
+    fontSize: "14px",
+    whiteSpace: "nowrap",
   },
   title: {
     fontSize: "28px",

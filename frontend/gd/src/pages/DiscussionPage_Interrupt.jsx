@@ -49,6 +49,21 @@ function DiscussionPage() {
   const silenceThresholdRef = useRef(3000); // 3 seconds of silence
   const lastSoundTimeRef = useRef(null);
   const animationFrameRef = useRef(null);
+  const activeAudioRef = useRef(null);
+  const abortControllerRef = useRef(null);
+
+  // Stop audio if component unmounts
+  useEffect(() => {
+    return () => {
+      if (activeAudioRef.current) {
+        activeAudioRef.current.pause();
+        activeAudioRef.current.currentTime = 0;
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -92,6 +107,24 @@ function DiscussionPage() {
     } catch (err) {
       console.error("❌ Could not check system health:", err);
     }
+  };
+
+  const endDiscussion = async () => {
+    if (!simId) { navigate('/home'); return; }
+    
+    // Stop audio immediately
+    if (activeAudioRef.current) {
+      activeAudioRef.current.pause();
+      activeAudioRef.current.currentTime = 0;
+    }
+
+    // Kill the SSE stream so no more agents start speaking
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Navigate without lag and tell FeedbackPage to compute feedback
+    navigate(`/feedback/${simId}`, { state: { requiresEndDiscussion: true, topic } });
   };
 
   const startSimulation = async () => {
@@ -329,8 +362,27 @@ function DiscussionPage() {
       
       if (data.success) {
         console.log(`💬 Transcribed: "${data.transcribed_text}"`);
+        // Immediately show the text for better UX
+        setMessages(prev => [...prev, {
+          id: `msg-${Date.now()}`,
+          agent: 'You',
+          role: 'Human Participant',
+          text: data.transcribed_text,
+          isThinking: false,
+          isHuman: true
+        }]);
+        setParticipants(prev =>
+          prev.map(p =>
+            p.name === 'You'
+              ? { ...p, status: 'spoke' }
+              : p
+          )
+        );
         setIsHumanTurn(false);
         setIsHumanSpeaking(false);
+        setInterruptReserved(false); // Reset the button for the next turn
+        // Set loading so the user knows backend is generating response
+        setLoading(true);
       } else {
         console.error("❌ Transcription failed:", data.error);
         alert(`Could not transcribe audio:\n${data.error}\n\nPlease try:\n1. Speaking louder and clearer\n2. Reducing background noise\n3. Using text input instead`);
@@ -357,10 +409,29 @@ function DiscussionPage() {
       console.log('✅ Server response:', data);
       
       if (data.success) {
-        console.log(`💬 Human typed: "${data.transcribed_text}"`);
+        console.log(`💬 Human typed: "${data.transcribed_text || textInput}"`);
+        // Immediately show the text for better UX
+        setMessages(prev => [...prev, {
+          id: `msg-${Date.now()}`,
+          agent: 'You',
+          role: 'Human Participant',
+          text: data.transcribed_text || textInput, // Fallback if API returns only success
+          isThinking: false,
+          isHuman: true
+        }]);
+        setParticipants(prev =>
+          prev.map(p =>
+            p.name === 'You'
+              ? { ...p, status: 'spoke' }
+              : p
+          )
+        );
         setTextInput('');
         setIsHumanTurn(false);
         setIsHumanSpeaking(false);
+        setInterruptReserved(false); // Reset the button for the next turn
+        // Set loading so the user knows backend is generating response
+        setLoading(true);
       } else {
         alert(`Error: ${data.error}`);
       }
@@ -378,9 +449,13 @@ function DiscussionPage() {
     setInterruptReserved(false); // Reset interrupt flag for new round
     setInterruptStatus("");
     
+    // Create an abort controller for this specific request
+    abortControllerRef.current = new AbortController();
+    
     try {
       const response = await fetch(`http://127.0.0.1:8001/next_round/${simId}`, {
-        method: "POST"
+        method: "POST",
+        signal: abortControllerRef.current.signal
       });
 
       if (!response.ok) {
@@ -433,6 +508,7 @@ function DiscussionPage() {
               else if (data.type === 'human_start') {
                 console.log('🎤 Human turn triggered! Starting recording...');
                 setIsAgentSpeaking(false);
+                setInterruptReserved(false); // Ensure the button resets so it can be pressed again later
                 setIsHumanTurn(true);
                 setCurrentSpeaker('You');
                 setParticipants(prev =>
@@ -461,15 +537,8 @@ function DiscussionPage() {
               }
 
               else if (data.type === 'human_response') {
-                setMessages(prev => [...prev, {
-                  id: `msg-${Date.now()}`,
-                  agent: 'You',
-                  role: 'Human Participant',
-                  text: data.text,
-                  isThinking: false,
-                  isHuman: true
-                }]);
-
+                // Backend echo received. We already updated the UI in submitVoice / submitText,
+                // so we just update the participant status if needed and keep loading UI true.
                 setParticipants(prev =>
                   prev.map(p =>
                     p.name === 'You'
@@ -481,7 +550,6 @@ function DiscussionPage() {
               }
 
               else if (data.type === 'response') {
-                setIsAgentSpeaking(false);
                 setParticipants(prev =>
                   prev.map(p =>
                     p.name === data.agent
@@ -505,19 +573,27 @@ function DiscussionPage() {
                   const playAudio = () => {
                     return new Promise((resolve) => {
                       const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
-                      audio.onended = resolve;
+                      activeAudioRef.current = audio;
+                      
+                      audio.onended = () => {
+                        activeAudioRef.current = null;
+                        resolve();
+                      };
                       audio.onerror = () => {
                         console.warn("Audio play error");
+                        activeAudioRef.current = null;
                         resolve();
                       };
                       audio.play().catch(err => {
                         console.warn("Could not play audio:", err);
+                        activeAudioRef.current = null;
                         resolve();
                       });
                     });
                   };
                   
                   playAudio().then(() => {
+                    setIsAgentSpeaking(false);
                     setParticipants(prev =>
                       prev.map(p =>
                         p.name === data.agent
@@ -526,6 +602,8 @@ function DiscussionPage() {
                       )
                     );
                   });
+                } else {
+                  setIsAgentSpeaking(false);
                 }
               }
 
@@ -545,6 +623,10 @@ function DiscussionPage() {
         }
       }
     } catch (err) {
+      if (err.name === 'AbortError') {
+        console.log("SSE Stream aborted manually.");
+        return; // Don't show an error for this
+      }
       console.error("❌ Error fetching next round:", err);
       alert("Failed to fetch next round");
     }
@@ -673,7 +755,7 @@ function DiscussionPage() {
               </div>
             </div>
             <button 
-              onClick={() => navigate('/home')}
+              onClick={endDiscussion}
               style={{
                 padding: '10px 20px',
                 background: '#6c757d',
@@ -866,7 +948,7 @@ function DiscussionPage() {
                 animation: 'pulse 1s infinite'
               }}></div>
               <span style={{ fontWeight: 'bold', color: '#856404' }}>
-                🎤 Recording: {formatDuration(recordingDuration)}
+                🎤 You can talk now. Recording: {formatDuration(recordingDuration)}
               </span>
               <button 
                 onClick={stopRecording}

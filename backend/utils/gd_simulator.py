@@ -110,13 +110,18 @@ PERSONAS = [
 # -------------------------
 # 🧩 Helper Functions
 # -------------------------
-def safe_generate(prompt, timeout=60):
+def safe_generate(prompt, timeout=60, is_json=False):
     """Call Gemini safely with timeout and debugging."""
 
     def call_gemini():
+        kwargs = {}
+        if is_json:
+            kwargs["config"] = genai.types.GenerateContentConfig(response_mime_type="application/json")
+            
         response = client.models.generate_content(
             model="gemini-2.5-flash",
-            contents=prompt
+            contents=prompt,
+            **kwargs
         )
         return response.text if response and hasattr(response, "text") else None
 
@@ -185,9 +190,9 @@ def text_to_audio_base64(text, agent_name):
     try:
         accent_map = {
             "Agent 1": "co.in",
-            #"Agent 2": "com",
-            #"Agent 3": "co.uk",
-            #"Agent 4": "com.au"
+            "Agent 2": "com",
+            "Agent 3": "co.uk",
+            "Agent 4": "com.au"
         }
         tld = accent_map.get(agent_name, "com")
         tts = gTTS(text, lang="en", tld=tld, slow=False)
@@ -847,6 +852,7 @@ def next_round(sim_id: str):
         nonlocal utterances
         human_just_spoke = False
         next_agent_future = None
+        next_agent_index = 0  # ✅ Track which agent to prepare
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             for i, agent in enumerate(speaking_order):
@@ -860,6 +866,8 @@ def next_round(sim_id: str):
                         if sim["interrupt_reserved"]:
                             print(f"\n🔔 INTERRUPT DETECTED! Discarding pre-generated text for {agent.name}")
                             next_agent_future = None
+                            # We break immediately here because the agent hasn't started speaking yet,
+                            # so we can switch to the human right away.
                             break
                         try:
                             text, audio_base64 = next_agent_future.result(timeout=0.5)
@@ -903,8 +911,11 @@ def next_round(sim_id: str):
                     text = agent.generate_response(prompt)
                     audio_base64 = text_to_audio_base64(text, agent.name)
                     human_just_spoke = False
+                    
+                    # ✅ Clear next_agent_future when human interrupts
+                    next_agent_future = None
 
-                # ── IF NOT INTERRUPTED AND NO PRE-GENERATED TEXT (e.g., very first agent) ──
+                # ── IF NOT INTERRUPTED AND NO PRE-GENERATED TEXT ──
                 elif text is None:
                     print(f"\n💭 {agent.name} is thinking...")
                     prompt = agent.prepare_prompt(
@@ -928,32 +939,32 @@ def next_round(sim_id: str):
                 yield f"data: {json.dumps({'type': 'agent_speaking', 'agent': agent.name})}\n\n"
                 yield f"data: {json.dumps({'type': 'response', 'agent': agent.name, 'text': text, 'audio': audio_base64})}\n\n"
 
-                # ── START PRE-GENERATING NEXT AGENT'S TEXT ──
+                # ── START PRE-GENERATING ONLY THE NEXT AGENT IN SEQUENCE ──
                 next_i = i + 1
                 if next_i < len(speaking_order):
                     next_agent = speaking_order[next_i]
-                    print(f"⏳ Pre-generating text for {next_agent.name} (lookahead)...")
+                    print(f"⏳ Pre-generating text for {next_agent.name} (next in sequence)...")
                     next_agent_future = executor.submit(
                         generate_agent_response,
                         next_agent, topic, list(utterances), False
                     )
 
                 # ── SYNC BACKEND LOOP WITH FRONTEND AUDIO PLAYBACK ──
-                # Prevents the backend loop from running ahead of the audio playback.
-                # This guarantees we only generate ONE agent ahead, and interrupts apply instantly.
                 if text:
                     word_count = len(text.split())
-                    # Slow down backend to match actual gTTS playback perfectly
-                    # using an extremely safe pace of 1.8 words per second + 1.5s buffer
                     estimated_audio_duration = word_count / 1.8 
                     sleep_time = estimated_audio_duration + 1.5
                     
                     print(f"⏳ Backend syncing with frontend audio playback ({sleep_time:.1f}s)...")
                     slept = 0
+                    interrupt_notified = False
                     while slept < sleep_time:
-                        if sim["interrupt_reserved"]:
-                            print("\n🔔 INTERRUPT DETECTED during audio playback sync!")
-                            break # Break early so the NEXT loop iteration catches the interrupt instantly
+                        if sim["interrupt_reserved"] and not interrupt_notified:
+                            print(f"\n🔔 INTERRUPT DETECTED during {agent.name}'s audio playback sync! Will switch to human after audio finishes.")
+                            interrupt_notified = True
+                            # ✅ FIX: Do NOT break here, let the audio finish playing!
+                            
+                        # If a new client connects or something, we still sleep the exact amount.
                         time.sleep(0.5)
                         slept += 0.5
 
@@ -1020,24 +1031,42 @@ def get_discussion_feedback(sim_id: str):
             HumanResponse.discussion_id == int(sim_id)
         ).order_by(HumanResponse.round_number).all()
 
+        def safe_parse_json_list(val):
+            if not val:
+                return []
+            try:
+                return json.loads(val)
+            except Exception:
+                # If the LLM returned garbage at the end (e.g. `]学]`), it throws JSONDecodeError
+                # We can strip the garbage or return it as a single raw string to avoid 500 Error
+                cleaned = str(val).strip()
+                # Find the last closing bracket to attempt rescuing the list
+                last_bracket = cleaned.rfind(']')
+                if last_bracket != -1:
+                    try:
+                        return json.loads(cleaned[:last_bracket+1])
+                    except:
+                        pass
+                return [cleaned]
+
         return {
             "discussion": {
                 "topic": discussion.topic,
                 "total_rounds": discussion.total_rounds,
+                "human_interrupt_count": discussion.human_interrupt_count if hasattr(discussion, 'human_interrupt_count') else 0,
             },
             "evaluation": {
-                "grammar": discussion.grammar_score if hasattr(discussion, 'grammar_score') else None,
-                "clarity": discussion.clarity_score if hasattr(discussion, 'clarity_score') else None,
-                "relevance": discussion.relevance_score if hasattr(discussion, 'relevance_score') else None,
-                "politeness": discussion.politeness_score if hasattr(discussion, 'politeness_score') else None,
-                "team_collaboration": discussion.team_collaboration_score if hasattr(discussion, 'team_collaboration_score') else None,
-                "overall": discussion.overall_score if hasattr(discussion, 'overall_score') else None,
-                "human_percentage": discussion.human_percentage if hasattr(discussion, 'human_percentage') else None,
-                "strengths": json.loads(discussion.strengths)
-                    if hasattr(discussion, 'strengths') and discussion.strengths else [],
-                "improvements": json.loads(discussion.improvements)
-                    if hasattr(discussion, 'improvements') and discussion.improvements else [],
-                "final_feedback": discussion.final_feedback if hasattr(discussion, 'final_feedback') else None,
+                "grammar": discussion.grammar_score if hasattr(discussion, 'grammar_score') else 0,
+                "clarity": discussion.clarity_score if hasattr(discussion, 'clarity_score') else 0,
+                "relevance": discussion.relevance_score if hasattr(discussion, 'relevance_score') else 0,
+                "politeness": discussion.politeness_score if hasattr(discussion, 'politeness_score') else 0,
+                "team_collaboration": discussion.team_collaboration_score if hasattr(discussion, 'team_collaboration_score') else 0,
+                "overall": discussion.overall_score if hasattr(discussion, 'overall_score') else 0,
+                "human_percentage": discussion.human_percentage if hasattr(discussion, 'human_percentage') else 0,
+                "human_interrupt_count": discussion.human_interrupt_count if hasattr(discussion, 'human_interrupt_count') else 0,
+                "strengths": safe_parse_json_list(discussion.strengths if hasattr(discussion, 'strengths') else None),
+                "improvements": safe_parse_json_list(discussion.improvements if hasattr(discussion, 'improvements') else None),
+                "final_feedback": discussion.final_feedback if hasattr(discussion, 'final_feedback') else "",
                 "topic": discussion.topic,
             },
             "rounds": [
@@ -1162,7 +1191,7 @@ Also comment whether participation level was:
 - Balanced (20-40%)
 - Dominating (>40%)
 
-Return strictly in JSON format like:
+Return strictly in JSON format. For the score values, YOU MUST ONLY RETURN PURE INTEGERS (e.g. 8). DO NOT RETURN FRACTIONS OR TEXT (e.g. "8/10", 8/10).
 
 {{
   "grammar": 0,
@@ -1181,7 +1210,7 @@ Return strictly in JSON format like:
     print("📊 GENERATING DISCUSSION FEEDBACK")
     print("==============================")
 
-    result_text = safe_generate(evaluation_prompt)
+    result_text = safe_generate(evaluation_prompt, is_json=True)
 
     # Strip markdown code fences if present (```json ... ```)
     cleaned = result_text.strip()
@@ -1225,17 +1254,25 @@ Return strictly in JSON format like:
     print("================================\n")
 
     # ✅ FIX: Safe DB saving. Won't crash and abort if columns (like interrupt_count) are missing!
+    def parse_score(val):
+        if isinstance(val, (int, float)): return int(val)
+        if isinstance(val, str):
+            import re
+            m = re.search(r'\d+', val)
+            return int(m.group()) if m else 0
+        return 0
+
     try:
         db = SessionLocal()
         discussion = db.query(Discussion).filter(Discussion.id == int(sim_id)).first()
         if discussion:
-            if hasattr(discussion, 'grammar_score'): discussion.grammar_score = result_json.get("grammar")
-            if hasattr(discussion, 'clarity_score'): discussion.clarity_score = result_json.get("clarity")
-            if hasattr(discussion, 'relevance_score'): discussion.relevance_score = result_json.get("relevance")
-            if hasattr(discussion, 'politeness_score'): discussion.politeness_score = result_json.get("politeness")
-            if hasattr(discussion, 'team_collaboration_score'): discussion.team_collaboration_score = result_json.get("team_collaboration")
-            if hasattr(discussion, 'overall_score'): discussion.overall_score = result_json.get("overall")
-            if hasattr(discussion, 'human_percentage'): discussion.human_percentage = result_json.get("human_percentage")
+            if hasattr(discussion, 'grammar_score'): discussion.grammar_score = parse_score(result_json.get("grammar"))
+            if hasattr(discussion, 'clarity_score'): discussion.clarity_score = parse_score(result_json.get("clarity"))
+            if hasattr(discussion, 'relevance_score'): discussion.relevance_score = parse_score(result_json.get("relevance"))
+            if hasattr(discussion, 'politeness_score'): discussion.politeness_score = parse_score(result_json.get("politeness"))
+            if hasattr(discussion, 'team_collaboration_score'): discussion.team_collaboration_score = parse_score(result_json.get("team_collaboration"))
+            if hasattr(discussion, 'overall_score'): discussion.overall_score = parse_score(result_json.get("overall"))
+            if hasattr(discussion, 'human_percentage'): discussion.human_percentage = parse_score(result_json.get("human_percentage"))
             if hasattr(discussion, 'human_interrupt_count'): discussion.human_interrupt_count = human_interrupt_count
             if hasattr(discussion, 'strengths'): discussion.strengths = json.dumps(result_json.get("strengths", []))
             if hasattr(discussion, 'improvements'): discussion.improvements = json.dumps(result_json.get("improvements", []))
