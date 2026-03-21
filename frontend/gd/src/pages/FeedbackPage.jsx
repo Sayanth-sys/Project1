@@ -44,17 +44,17 @@ function FeedbackPage() {
           console.log("Local Payload:", localData);
           
           const finalFeedback = {
-            grammar: localData.grammar || dbData.grammar || 0,
-            clarity: localData.clarity || dbData.clarity || 0,
-            relevance: localData.relevance || dbData.relevance || 0,
-            politeness: localData.politeness || dbData.politeness || 0,
-            team_collaboration: localData.team_collaboration || dbData.team_collaboration || 0,
-            overall: localData.overall || dbData.overall || 0,
-            human_percentage: localData.human_percentage ?? dbData.human_percentage ?? 0,
-            human_interrupt_count: localData.human_interrupt_count ?? dbData.human_interrupt_count ?? data.discussion?.human_interrupt_count ?? 0,
+            grammar: localData.grammar ?? dbData.grammar ?? null,
+            clarity: localData.clarity ?? dbData.clarity ?? null,
+            relevance: localData.relevance ?? dbData.relevance ?? null,
+            politeness: localData.politeness ?? dbData.politeness ?? null,
+            team_collaboration: localData.team_collaboration ?? dbData.team_collaboration ?? null,
+            overall: localData.overall ?? dbData.overall ?? null,
+            human_percentage: localData.human_percentage ?? dbData.human_percentage ?? null,
+            human_interrupt_count: localData.human_interrupt_count ?? dbData.human_interrupt_count ?? data.discussion?.human_interrupt_count ?? null,
             strengths: (localData.strengths && localData.strengths.length > 0) ? localData.strengths : dbData.strengths || [],
             improvements: (localData.improvements && localData.improvements.length > 0) ? localData.improvements : dbData.improvements || [],
-            final_feedback: localData.final_feedback || dbData.final_feedback || "",
+            final_feedback: localData.final_feedback ?? dbData.final_feedback ?? "",
             topic: localData.topic || data.discussion?.topic || "Discussion"
           };
 
@@ -79,11 +79,23 @@ function FeedbackPage() {
 
   // Get topic from either source
   const topic = feedback?.topic || roundData?.discussion?.topic || location.state?.topic || "Discussion";
+  const hasEvaluationData = Boolean(
+    feedback &&
+    [
+      feedback.grammar,
+      feedback.clarity,
+      feedback.relevance,
+      feedback.politeness,
+      feedback.team_collaboration,
+      feedback.overall
+    ].some((value) => value !== null && value !== undefined)
+  );
 
   // Score bar component
   const ScoreBar = ({ label, score, max = 10, color = "#2563eb" }) => {
     // Safe check to prevent NaN width breaking the UI style
-    const pct = score ? (score / max) * 100 : 0;
+    const numericScore = score ?? 0;
+    const pct = (numericScore / max) * 100;
     return (
       <div style={styles.scoreRow}>
         <div style={styles.scoreLabel}>{label}</div>
@@ -96,7 +108,7 @@ function FeedbackPage() {
             }}
           />
         </div>
-        <div style={styles.scoreValue}>{score || 0}/{max}</div>
+        <div style={styles.scoreValue}>{numericScore}/{max}</div>
       </div>
     );
   };
@@ -140,7 +152,7 @@ function FeedbackPage() {
         </div>
 
         {/* No evaluation data notice */}
-        {!feedback && (
+        {!hasEvaluationData && (
           <div style={{
             background: "#fffbeb",
             border: "1px solid #fbbf24",
@@ -165,20 +177,20 @@ function FeedbackPage() {
         )}
 
         {/* Overall Score Card */}
-        {feedback && (
+        {feedback && hasEvaluationData && (
           <div style={styles.overallCard}>
             <div style={styles.overallScoreCircle}>
-              <div style={styles.overallScoreNumber}>{feedback.overall || 0}</div>
+              <div style={styles.overallScoreNumber}>{feedback.overall ?? 0}</div>
               <div style={styles.overallScoreMax}>/10</div>
             </div>
             <div style={styles.overallInfo}>
               <h2 style={styles.overallTitle}>Overall Performance</h2>
               <p style={styles.overallSubtitle}>
-                {feedback.overall >= 8
+                {(feedback.overall ?? 0) >= 8
                   ? "Excellent performance! 🌟"
-                  : feedback.overall >= 6
+                  : (feedback.overall ?? 0) >= 6
                   ? "Good job! Keep improving 👍"
-                  : feedback.overall >= 4
+                  : (feedback.overall ?? 0) >= 4
                   ? "Decent effort, room for growth 💪"
                   : "Needs significant improvement 📚"}
               </p>
@@ -240,7 +252,7 @@ function FeedbackPage() {
         )}
 
         {/* Detailed Scores */}
-        {feedback && (
+        {feedback && hasEvaluationData && (
           <div style={styles.card}>
             <h3 style={styles.cardTitle}>📊 Detailed Scores</h3>
             <div style={styles.scoresGrid}>
@@ -254,7 +266,7 @@ function FeedbackPage() {
         )}
 
         {/* Strengths & Improvements */}
-        {feedback && (
+        {feedback && hasEvaluationData && (
           <div style={styles.twoColGrid}>
             <div style={{ ...styles.card, borderLeft: "4px solid #10b981" }}>
               <h3 style={styles.cardTitle}>💪 Strengths</h3>
@@ -280,7 +292,7 @@ function FeedbackPage() {
         )}
 
         {/* Final Feedback */}
-        {feedback && feedback.final_feedback && (
+        {feedback && hasEvaluationData && feedback.final_feedback && (
           <div style={styles.card}>
             <h3 style={styles.cardTitle}>📝 Evaluator's Feedback</h3>
             <p style={styles.feedbackText}>{feedback.final_feedback}</p>

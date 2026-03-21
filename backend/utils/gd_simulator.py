@@ -116,7 +116,7 @@ def safe_generate(prompt, timeout=60, is_json=False):
     def call_gemini():
         kwargs = {}
         if is_json:
-            kwargs["config"] = genai.types.GenerateContentConfig(response_mime_type="application/json")
+            kwargs["config"] = {"response_mime_type": "application/json"}
             
         response = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -1056,17 +1056,17 @@ def get_discussion_feedback(sim_id: str):
                 "human_interrupt_count": discussion.human_interrupt_count if hasattr(discussion, 'human_interrupt_count') else 0,
             },
             "evaluation": {
-                "grammar": discussion.grammar_score if hasattr(discussion, 'grammar_score') else 0,
-                "clarity": discussion.clarity_score if hasattr(discussion, 'clarity_score') else 0,
-                "relevance": discussion.relevance_score if hasattr(discussion, 'relevance_score') else 0,
-                "politeness": discussion.politeness_score if hasattr(discussion, 'politeness_score') else 0,
-                "team_collaboration": discussion.team_collaboration_score if hasattr(discussion, 'team_collaboration_score') else 0,
-                "overall": discussion.overall_score if hasattr(discussion, 'overall_score') else 0,
-                "human_percentage": discussion.human_percentage if hasattr(discussion, 'human_percentage') else 0,
+                "grammar": discussion.grammar_score if hasattr(discussion, 'grammar_score') else None,
+                "clarity": discussion.clarity_score if hasattr(discussion, 'clarity_score') else None,
+                "relevance": discussion.relevance_score if hasattr(discussion, 'relevance_score') else None,
+                "politeness": discussion.politeness_score if hasattr(discussion, 'politeness_score') else None,
+                "team_collaboration": discussion.team_collaboration_score if hasattr(discussion, 'team_collaboration_score') else None,
+                "overall": discussion.overall_score if hasattr(discussion, 'overall_score') else None,
+                "human_percentage": discussion.human_percentage if hasattr(discussion, 'human_percentage') else None,
                 "human_interrupt_count": discussion.human_interrupt_count if hasattr(discussion, 'human_interrupt_count') else 0,
                 "strengths": safe_parse_json_list(discussion.strengths if hasattr(discussion, 'strengths') else None),
                 "improvements": safe_parse_json_list(discussion.improvements if hasattr(discussion, 'improvements') else None),
-                "final_feedback": discussion.final_feedback if hasattr(discussion, 'final_feedback') else "",
+                "final_feedback": discussion.final_feedback if hasattr(discussion, 'final_feedback') else None,
                 "topic": discussion.topic,
             },
             "rounds": [
@@ -1222,12 +1222,23 @@ Return strictly in JSON format. For the score values, YOU MUST ONLY RETURN PURE 
         if cleaned.endswith("```"):
             cleaned = cleaned[:-3].strip()
 
+    # Isolate JSON explicitly to ignore conversational prefixes like "Here is the JSON:"
+    start_idx = cleaned.find("{")
+    end_idx = cleaned.rfind("}")
+    if start_idx != -1 and end_idx != -1:
+        cleaned = cleaned[start_idx:end_idx+1]
+
+    import re
+    # If the LLM still outputs `9/10` or `"9/10"` inside JSON values, clean it to valid numeric integers `9`
+    # E.g. `"grammar": 9/10` -> `"grammar": 9`
+    cleaned = re.sub(r'(:\s*)["\']?(\d+)/10["\']?', r'\1\2', cleaned)
+    
     try:
         raw_json = json.loads(cleaned)
         # ✅ FIX: Convert keys to lowercase safely so the frontend doesn't miss them
         result_json = {str(k).lower(): v for k, v in raw_json.items()}
         result_json["human_percentage"] = human_percentage
-    except:
+    except Exception as e:
         print("⚠️ Could not parse JSON")
         print(result_text)
         return {"error": "Evaluation parsing failed"}

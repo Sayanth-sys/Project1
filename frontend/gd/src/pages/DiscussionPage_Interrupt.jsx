@@ -14,12 +14,14 @@ function DiscussionPage() {
   
   // Get topic from location state (passed from TopicSelection)
   const topic = location.state?.topic || "AI Ethics and Governance";
+  const incomingSimulationId = location.state?.simulationId || null;
+  const incomingAgents = location.state?.agents || [];
   
   const [participants, setParticipants] = useState([
     ...initialParticipants,
     { name: "You", role: "Human Participant", status: "waiting" }
   ]);
-  const [simId, setSimId] = useState(null);
+  const [simId, setSimId] = useState(incomingSimulationId);
   const [round, setRound] = useState(0);
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -72,6 +74,28 @@ function DiscussionPage() {
   useEffect(() => {
     checkSystemHealth();
   }, []);
+
+  useEffect(() => {
+    if (incomingSimulationId && simId !== incomingSimulationId) {
+      setSimId(incomingSimulationId);
+    }
+  }, [incomingSimulationId, simId]);
+
+  useEffect(() => {
+    if (!Array.isArray(incomingAgents) || incomingAgents.length === 0) return;
+    setParticipants(prev => {
+      const updated = [...prev];
+      incomingAgents.forEach((agent, i) => {
+        if (!updated[i]) return;
+        updated[i] = {
+          ...updated[i],
+          name: agent.name || updated[i].name,
+          role: agent.persona || updated[i].role
+        };
+      });
+      return updated;
+    });
+  }, [incomingAgents]);
 
   useEffect(() => {
     if (isRecording) {
@@ -128,6 +152,10 @@ function DiscussionPage() {
   };
 
   const startSimulation = async () => {
+    if (simId) {
+      console.log("✅ Simulation already initialized:", simId);
+      return;
+    }
     setLoading(true);
     try {
       console.log("🎯 Starting simulation with topic:", topic);
@@ -782,7 +810,7 @@ function DiscussionPage() {
                 opacity: (loading && !simId) || simId ? 0.7 : 1
               }}
             >
-              {loading && !simId ? "Starting..." : simId ? "✓ Started" : "Start Simulation"}
+              {loading && !simId ? "Starting..." : simId ? "✓ Session Loaded" : "Start Simulation"}
             </button>
             <button 
               onClick={fetchNextRound} 
