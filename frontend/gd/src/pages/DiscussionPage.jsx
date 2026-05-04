@@ -11,6 +11,8 @@ const initialParticipants = [
 function DiscussionPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const username = sessionStorage.getItem("username") || "User";
+  const discussionFeedbackKey = `discussionFeedback:${username}`;
 
   const topic = location.state?.topic || "AI Ethics and Governance";
 
@@ -123,9 +125,9 @@ function DiscussionPage() {
       const response = await fetch(`http://127.0.0.1:8001/end_discussion/${simId}`, { method: "POST" });
       const result = await response.json();
       if (result && !result.error) {
-        const feedbackStore = JSON.parse(localStorage.getItem("discussionFeedback") || "{}");
+        const feedbackStore = JSON.parse(localStorage.getItem(discussionFeedbackKey) || "{}");
         feedbackStore[simId] = { ...result, topic };
-        localStorage.setItem("discussionFeedback", JSON.stringify(feedbackStore));
+        localStorage.setItem(discussionFeedbackKey, JSON.stringify(feedbackStore));
         navigate(`/feedback/${simId}`);
       } else {
         alert("Could not generate feedback. " + (result.error || ""));

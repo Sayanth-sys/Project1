@@ -11,6 +11,7 @@ function TopicDiscussion({ onLogout }) {
   const [topic, setTopic] = useState("");
   const [duration, setDuration] = useState(15);
   const username = sessionStorage.getItem("username") || "User";
+  const discussionHistoryKey = `discussionHistory:${username}`;
 
   const startDiscussion = async () => {
     if (!topic.trim()) {
@@ -41,9 +42,9 @@ function TopicDiscussion({ onLogout }) {
         timestamp: now.toISOString(),
       };
 
-      const history = JSON.parse(localStorage.getItem("discussionHistory") || "[]");
+      const history = JSON.parse(localStorage.getItem(discussionHistoryKey) || "[]");
       history.unshift(record);
-      localStorage.setItem("discussionHistory", JSON.stringify(history));
+      localStorage.setItem(discussionHistoryKey, JSON.stringify(history));
 
       navigate("/discussion", {
         state: {

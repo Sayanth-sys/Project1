@@ -19,7 +19,8 @@ function HomePage({ onLogout }) {
     }
     setUsername(name);
 
-    const history = JSON.parse(localStorage.getItem("discussionHistory") || "[]");
+    const historyKey = `discussionHistory:${name}`;
+    const history = JSON.parse(localStorage.getItem(historyKey) || "[]");
     setDiscussions(history);
   }, [navigate]);
 

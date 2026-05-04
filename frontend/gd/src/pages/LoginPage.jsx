@@ -130,7 +130,7 @@ function LoginPage({ onLogin }) {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Sayanth"
+                placeholder="Username"
                 required
                 style={{
                   width: '100%',
@@ -166,15 +166,7 @@ function LoginPage({ onLogin }) {
               />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#6b7280', cursor: 'pointer' }}>
-                <input type="checkbox" style={{ width: '14px', height: '14px' }} />
-                Remember me
-              </label>
-              <a href="#" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: '600' }}>
-                Forgot password?
-              </a>
-            </div>
+            
 
             {error && (
               <div style={{

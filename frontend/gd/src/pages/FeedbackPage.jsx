@@ -8,6 +8,8 @@ function FeedbackPage() {
   const [feedback, setFeedback] = useState(null);
   const [roundData, setRoundData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const username = sessionStorage.getItem("username") || "User";
+  const discussionFeedbackKey = `discussionFeedback:${username}`;
 
   useEffect(() => {
     const isNewEnd = location.state?.requiresEndDiscussion;
@@ -16,7 +18,7 @@ function FeedbackPage() {
     const loadData = async () => {
       setLoading(true);
       
-      const feedbackStore = JSON.parse(localStorage.getItem("discussionFeedback") || "{}");
+      const feedbackStore = JSON.parse(localStorage.getItem(discussionFeedbackKey) || "{}");
 
       try {
         // If coming directly from the End Discussion button, calculate feedback FIRST
@@ -26,7 +28,7 @@ function FeedbackPage() {
           const endData = await endRes.json();
           if (endData && !endData.error) {
             feedbackStore[id] = { ...endData, topic: currentTopic };
-            localStorage.setItem("discussionFeedback", JSON.stringify(feedbackStore));
+            localStorage.setItem(discussionFeedbackKey, JSON.stringify(feedbackStore));
           }
         }
 
